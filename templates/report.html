@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>รายงาน — Mini Online Shop</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">🛒 ร้านค้าออนไลน์ <span>Mini Online Shop</span></div>
+    <nav><a href="/">จัดการข้อมูล</a><a href="/report" class="active">รายงาน</a></nav>
+  </header>
+  <main class="container">
+    <section class="cards">
+      <div class="metric"><div class="metric-num" id="m_cus">—</div><div class="metric-label">ลูกค้า</div></div>
+      <div class="metric"><div class="metric-num" id="m_prd">—</div><div class="metric-label">สินค้า</div></div>
+      <div class="metric"><div class="metric-num" id="m_ord">—</div><div class="metric-label">ออเดอร์</div></div>
+      <div class="metric"><div class="metric-num" id="m_rev">—</div><div class="metric-label">รีวิว</div></div>
+    </section>
+    <section class="card">
+      <h3>📈 สินค้าขายดี (Best Sellers)</h3>
+      <div id="bestStatus" class="status"></div>
+      <div class="table-wrap"><table id="bestTable"><thead></thead><tbody></tbody></table></div>
+    </section>
+    <section class="card">
+      <h3>🏅 ลูกค้าที่ซื้อมากกว่าค่าเฉลี่ย (Above Average)</h3>
+      <div id="topcusStatus" class="status"></div>
+      <div class="table-wrap"><table id="topcusTable"><thead></thead><tbody></tbody></table></div>
+    </section>
+    <section class="card">
+      <h3>⭐ สินค้าคะแนนรีวิวเฉลี่ย ≥ 4 (HAVING)</h3>
+      <div id="ratedStatus" class="status"></div>
+      <div class="table-wrap"><table id="ratedTable"><thead></thead><tbody></tbody></table></div>
+    </section>
+  </main>
+  <script src="{{ url_for('static', filename='report.js') }}"></script>
+</body>
+</html>
