@@ -186,11 +186,13 @@ CREATE TABLE payment (
     order_id INT NULL,
     method VARCHAR(10) NOT NULL,
     amount DECIMAL(10, 2) NOT NULL,
+    status VARCHAR(12) NOT NULL DEFAULT 'pending',
     paid_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 
     CONSTRAINT pk_payment_id PRIMARY KEY (payment_id),
     CONSTRAINT fk_payment_order_id FOREIGN KEY (order_id) REFERENCES shop_order(order_id) ON DELETE CASCADE,
     CONSTRAINT ck_method CHECK (method IN ('cash', 'bank', 'point')),
+    CONSTRAINT ck_pay_status CHECK (status IN ('pending', 'verified')),
     CONSTRAINT ck_pay_amount CHECK (amount >= 0)
 );
 
@@ -1024,3 +1026,11 @@ INSERT INTO payment (order_id, method, amount, paid_date) VALUES
 (51, 'bank', 2490.00, '2026-05-20 12:00:00'),
 (54, 'point', 2679.00, '2026-05-21 13:00:00'),
 (56, 'cash', 2329.00, '2026-05-22 14:00:00');
+
+-- ---------- ปรับสถานะการชำระเงินให้ตรงกับสถานะออเดอร์ ----------
+-- ออเดอร์ที่ชำระแล้ว/จัดส่งแล้ว = พนักงานยืนยันเรียบร้อยแล้ว (verified)
+-- ออเดอร์ที่ยังรอชำระเงิน = ลูกค้าแจ้งชำระแล้วแต่พนักงานยังไม่ยืนยัน (pending)
+UPDATE payment pay
+INNER JOIN shop_order o ON o.order_id = pay.order_id
+SET pay.status = 'verified'
+WHERE o.status IN ('paid', 'delivered', 'succeed', 'shipped');
