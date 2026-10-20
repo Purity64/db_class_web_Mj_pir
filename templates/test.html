@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ร้านค้าออนไลน์ — Mini Online Shop</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">🛒 ร้านค้าออนไลน์ <span>Mini Online Shop</span></div>
+    <nav><a href="/" class="active">จัดการข้อมูล</a><a href="/report">รายงาน</a></nav>
+  </header>
+  <main class="container">
+    <div class="tabs">
+      <button class="tab active" data-entity="customers">ลูกค้า</button>
+      <button class="tab" data-entity="products">สินค้า</button>
+      <button class="tab" data-entity="orders">ออเดอร์</button>
+    </div>
+    <section class="card">
+      <h3>ค้นหา <span id="searchTitle"></span></h3>
+      <div id="searchFields" class="search-grid"></div>
+      <div class="btn-row">
+        <button class="btn add" id="btnAdd">+ เพิ่มข้อมูลใหม่</button>
+        <button class="btn" id="btnClear" style="margin-left:auto">ล้างเงื่อนไข</button>
+        <button class="btn primary" id="btnSearch">🔍 ค้นหา</button>
+      </div>
+    </section>
+    <section class="card">
+      <div id="status" class="status"></div>
+      <div class="table-wrap"><table id="resultTable"><thead><tr id="tableHead"></tr></thead><tbody id="tableBody"></tbody></table></div>
+    </section>
+  </main>
+  <div id="modal" class="modal hidden">
+    <div class="modal-box">
+      <h3 id="modalTitle">เพิ่มข้อมูล</h3>
+      <div id="formFields"></div>
+      <div class="btn-row">
+        <button class="btn primary" id="btnSave">บันทึก</button>
+        <button class="btn" id="btnCancel">ยกเลิก</button>
+      </div>
+    </div>
+  </div>
+  <script src="{{ url_for('static', filename='app.js') }}"></script>
+</body>
+</html>

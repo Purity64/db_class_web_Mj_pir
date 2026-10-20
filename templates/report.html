@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>รายงาน — Mini Online Shop</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">🛒 ร้านค้าออนไลน์ <span>Mini Online Shop</span></div>
+    <nav><a href="/">จัดการข้อมูล</a><a href="/report" class="active">รายงาน</a></nav>
+  </header>
+  <main class="container">
+    <!-- การ์ดตัวเลข: สร้างจาก db.report_summary() อัตโนมัติ -->
+    <section class="cards" id="summary"></section>
+    <!-- กล่องรายงาน: สร้างจาก db.REPORTS อัตโนมัติ (เพิ่มรายงานที่ db.py ไม่ต้องแก้ไฟล์นี้) -->
+    <div id="reports"></div>
+  </main>
+  <script src="{{ url_for('static', filename='report.js') }}"></script>
+</body>
+</html>
