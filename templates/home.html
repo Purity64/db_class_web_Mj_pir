@@ -82,6 +82,24 @@
       </div>
     </div>
   </div>
+  <div id="reviewModal" class="modal hidden">
+    <div class="modal-box" style="max-width:760px">
+      <h3 id="rvTitle">⭐ รีวิวสินค้า</h3>
+      <div id="rvStatus" class="status"></div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr><th>สินค้า</th><th>ดาว (1-5)</th><th>ความคิดเห็น</th></tr>
+          </thead>
+          <tbody id="rvBody"></tbody>
+        </table>
+      </div>
+      <div class="btn-row" style="justify-content:flex-end; margin-top:12px">
+        <button class="btn primary" id="btnReviewSave">บันทึกรีวิว</button>
+        <button class="btn" id="btnReviewClose">ยกเลิก</button>
+      </div>
+    </div>
+  </div>
   <script src="{{ url_for('static', filename='home.js') }}"></script>
 </body>
 </html>

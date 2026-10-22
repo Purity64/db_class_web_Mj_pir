@@ -35,7 +35,6 @@ CREATE TABLE product (
     detail		text null,
     category	varchar(100),
     price		decimal(10,2) not null,
-    img_url		varchar(2048),
 
     discount 	decimal(10,2) null default null,
     created_at	timestamp 	default CURRENT_TIMESTAMP(),
@@ -142,10 +141,10 @@ values	('Somchai', 'somchai@example.com', '1234', 'user'),
 		('Somsri', 'somsri@example.com', '1234', 'user'),
 		('Admin', 'admin@example.com', '1234', 'admin');
 
-INSERT 	INTO product (name, detail, category, price, img_url, discount)
-VALUES  ('Game Account A', 'บัญชีเกมระดับเริ่มต้น', 'Game', 500.00, NULL, 0.00),
-        ('Game Account B', 'บัญชีเกมระดับกลาง', 'Game', 1000.00, NULL, 100.00),
-        ('Software License', 'บัญชีซอฟต์แวร์ทดลอง', 'Software', 300.00, NULL, NULL);
+INSERT 	INTO product (name, detail, category, price, discount)
+VALUES  ('Game Account A', 'บัญชีเกมระดับเริ่มต้น', 'Game', 500.00, 0.00),
+        ('Game Account B', 'บัญชีเกมระดับกลาง', 'Game', 1000.00, 100.00),
+        ('Software License', 'บัญชีซอฟต์แวร์ทดลอง', 'Software', 300.00, NULL);
 
 INSERT 	INTO shop_order (user_id, status)
 VALUES  (1, 'success'),

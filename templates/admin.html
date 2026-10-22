@@ -16,6 +16,7 @@
       <button class="tab active" data-entity="customers">user</button>
       <button class="tab" data-entity="products">สินค้า</button>
       <button class="tab" data-entity="orders">ออเดอร์</button>
+      <button class="tab" data-entity="code">โค้ดส่วนลด</button>
     </div>
     <section class="card">
       <h3>ค้นหา <span id="searchTitle"></span></h3>
@@ -38,6 +39,39 @@
       <div class="btn-row">
         <button class="btn primary" id="btnSave">บันทึก</button>
         <button class="btn" id="btnCancel">ยกเลิก</button>
+      </div>
+    </div>
+  </div>
+  <div id="stockModal" class="modal hidden">
+    <div class="modal-box" style="min-width:560px">
+      <h3 id="stockTitle">📦 สต็อกสินค้า</h3>
+      <div id="stockStatus" class="status"></div>
+      <div class="table-wrap"><table id="stockTable">
+        <thead><tr><th>#</th><th>username</th><th>password</th><th>use</th><th>สถานะ</th><th>จัดการ</th></tr></thead>
+        <tbody id="stockBody"></tbody>
+      </table></div>
+      <div class="btn-row" style="margin-top:10px;align-items:center;flex-wrap:wrap;gap:8px">
+        <input id="stockUser" type="text" placeholder="username" style="width:150px;padding:6px">
+        <input id="stockPass" type="text" placeholder="password" style="width:150px;padding:6px">
+        <button class="btn add" id="btnAddStock">+ เพิ่มสต็อก</button>
+        <button class="btn" id="btnStockClose" style="margin-left:auto">ปิด</button>
+      </div>
+    </div>
+  </div>
+  <div id="stockEditModal" class="modal hidden">
+    <div class="modal-box" style="min-width:360px">
+      <h3>แก้ไขบัญชีสต็อก</h3>
+      <div class="field"><label>username</label><input id="seUser" type="text"></div>
+      <div class="field"><label>password</label><input id="sePass" type="text"></div>
+      <div class="field"><label>use</label>
+        <select id="seUse">
+          <option value="0">0 — ยังไม่ออกของ</option>
+          <option value="1">1 — ออกของแล้ว</option>
+        </select>
+      </div>
+      <div class="btn-row">
+        <button class="btn primary" id="btnStockEditSave">บันทึก</button>
+        <button class="btn" id="btnStockEditCancel">ยกเลิก</button>
       </div>
     </div>
   </div>

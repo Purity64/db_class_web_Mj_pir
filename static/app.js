@@ -63,6 +63,7 @@ const ENTITIES = {
     "label": "สินค้า",
     "api": "/api/products",
     "idKey": "product_id",
+    "columns": ["product_id", "name", "detail", "category", "price", "discount", "stock"],
     "search": [
       {
         "key": "name",
@@ -73,10 +74,7 @@ const ENTITIES = {
         "key": "category",
         "label": "หมวดหมู่",
         "type": "select",
-        "options": [
-          "pending",
-          "shipped"
-        ]
+        "optionsFrom": { "api": "/api/categories", "value": "category", "label": "category" }
       }
     ],
     "form": [
@@ -84,6 +82,11 @@ const ENTITIES = {
         "key": "name",
         "label": "ชื่อสินค้า",
         "type": "text"
+      },
+      {
+        "key": "detail",
+        "label": "รายละเอียด",
+        "type": "textarea"
       },
       {
         "key": "category",
@@ -96,9 +99,15 @@ const ENTITIES = {
         "type": "number"
       },
       {
-        "key": "stock",
-        "label": "สต็อก",
+        "key": "discount",
+        "label": "ส่วนลด",
         "type": "number"
+      },
+      {
+        "key": "stock",
+        "label": "จำนวนสต็อก (ตอนเพิ่มใหม่)",
+        "type": "number",
+        "createOnly": true
       }
     ]
   },
@@ -149,7 +158,80 @@ const ENTITIES = {
         ]
       }
     ]
-  }
+  },
+  "code": {
+    "label": "โค้ดส่วนลด",
+    "api": "/api/codes",
+    "idKey": "code_id",
+    "columns": ["code_id", "code_name", "discount", "discount_method", "max_uses", "status", "end_at"],
+    "search": [
+      {
+        "key": "code_name",
+        "label": "ชื่อโค้ด",
+        "type": "text"
+      },
+      {
+        "key": "discount_method",
+        "label": "วิธีลด",
+        "type": "select",
+        "options": [
+          { "value": "", "label": "ทั้งหมด" },
+          { "value": "money", "label": "money (บาท)" },
+          { "value": "percent", "label": "percent (%)" }
+        ]
+      },
+      {
+        "key": "status",
+        "label": "สถานะ",
+        "type": "select",
+        "options": [
+          { "value": "", "label": "ทั้งหมด" },
+          { "value": "1", "label": "เปิดใช้" },
+          { "value": "0", "label": "ปิด" }
+        ]
+      }
+    ],
+    "form": [
+      {
+        "key": "code_name",
+        "label": "ชื่อโค้ด",
+        "type": "text"
+      },
+      {
+        "key": "discount",
+        "label": "ส่วนลด",
+        "type": "number"
+      },
+      {
+        "key": "discount_method",
+        "label": "วิธีลด",
+        "type": "select",
+        "options": [
+          { "value": "money", "label": "money (บาท)" },
+          { "value": "percent", "label": "percent (%)" }
+        ]
+      },
+      {
+        "key": "max_uses",
+        "label": "จำกัดการใช้ (0 = ไม่จำกัด)",
+        "type": "number"
+      },
+      {
+        "key": "status",
+        "label": "สถานะ",
+        "type": "select",
+        "options": [
+          { "value": "1", "label": "เปิดใช้" },
+          { "value": "0", "label": "ปิด" }
+        ]
+      },
+      {
+        "key": "end_at",
+        "label": "หมดอายุ (ว่าง = ไม่หมดอายุ)",
+        "type": "datetime-local"
+      }
+    ]
+  },
 };
 
 let current = Object.keys(ENTITIES)[0];
@@ -169,6 +251,11 @@ function fieldHtml(f, prefix, value = "") {
         const t = typeof o === "object" ? o.label : (o || "ทั้งหมด");
         return '<option value="' + v + '"' + (String(v) === String(value ?? "") ? " selected" : "") + '>' + t + '</option>';
       }).join("") + '</select>';
+  } else if (f.type === "textarea") {
+    input = '<textarea id="' + prefix + f.key + '" rows="3" style="width:100%;font:inherit;padding:6px">' + (value ?? "") + '</textarea>';
+  } else if (f.type === "datetime-local") {
+    const v = value ? String(value).replace(" ", "T").slice(0, 16) : "";
+    input = '<input id="' + prefix + f.key + '" type="datetime-local" value="' + v + '">';
   } else { input = '<input id="' + prefix + f.key + '" type="' + f.type + '" value="' + (value ?? "") + '">'; }
   return '<div class="field"><label>' + f.label + '</label>' + input + '</div>';
 }
@@ -181,8 +268,11 @@ async function loadOptions(fields, forSearch) {
     if (forSearch && r.ok) f.options.unshift({ value: "", label: "ทั้งหมด" });
   }
 }
-// ช่องในฟอร์มที่ใช้อยู่ตอนนี้ (ช่อง editOnly แสดงเฉพาะตอนแก้ไข)
-function formFields() { return ENTITIES[current].form.filter(f => !f.editOnly || editingId !== null); }
+// ช่องในฟอร์มที่ใช้อยู่ตอนนี้ (editOnly = แสดงเฉพาะตอนแก้ไข, createOnly = แสดงเฉพาะตอนเพิ่มใหม่)
+function formFields() {
+  return ENTITIES[current].form.filter(f =>
+    (!f.editOnly || editingId !== null) && (!f.createOnly || editingId === null));
+}
 async function buildSearch() {
   const cfg = ENTITIES[current];
   await loadOptions(cfg.search, true);
@@ -204,13 +294,19 @@ function renderTable(r) {
   const rows = r.data || [];
   if (rows.length === 0) { setStatus(st, "ไม่พบข้อมูล"); return; }
   setStatus(st, "พบ " + rows.length + " รายการ");
-  const cols = Object.keys(rows[0]);
+  const cfg = ENTITIES[current];
+  const avail = Object.keys(rows[0]);
+  const cols = cfg.columns ? cfg.columns.filter(c => avail.includes(c)) : avail;
   head.innerHTML = cols.map(c => "<th>" + c + "</th>").join("") + "<th>จัดการ</th>";
   body.innerHTML = rows.map(row => {
-    const id = row[ENTITIES[current].idKey];
+    const id = row[cfg.idKey];
+    let actions = '<button class="btn sm" onclick="editRow(' + id + ')">แก้ไข</button> ' +
+      '<button class="btn sm del" onclick="deleteRow(' + id + ')">ลบ</button>';
+    if (cfg.idKey === "product_id" && document.getElementById("stockModal")) {
+      actions += ' <button class="btn sm" onclick="openStockModal(' + id + ')">📦 สต็อก</button>';
+    }
     return "<tr>" + cols.map(c => "<td>" + (row[c] ?? "—") + "</td>").join("") +
-      '<td><button class="btn sm" onclick="editRow(' + id + ')">แก้ไข</button> ' +
-      '<button class="btn sm del" onclick="deleteRow(' + id + ')">ลบ</button></td></tr>';
+      "<td>" + actions + "</td></tr>";
   }).join("");
 }
 async function openForm(title, data = {}) {
@@ -253,3 +349,74 @@ on("#btnSave", save);
 on("#btnCancel", () => $("#modal").classList.add("hidden"));
 buildSearch();
 setStatus($("#status"), 'กด "ค้นหา" เพื่อแสดงข้อมูล');
+
+// ===== จัดการสต็อก (product_detail) ของสินค้า =====
+let stockProductId = null;
+let stockRows = [];
+let editingStockId = null;
+async function openStockModal(pid) {
+  stockProductId = pid;
+  const t = $("#stockTitle"); if (!t) return;
+  t.textContent = "📦 สต็อกสินค้า #" + pid;
+  if ($("#stockUser")) $("#stockUser").value = "";
+  if ($("#stockPass")) $("#stockPass").value = "";
+  $("#stockModal").classList.remove("hidden");
+  await loadStock();
+}
+async function loadStock() {
+  const st = $("#stockStatus"), body = $("#stockBody");
+  if (!st || stockProductId === null) return;
+  setStatus(st, "กำลังโหลด...");
+  const r = await api("/api/products/" + stockProductId + "/stock");
+  if (!r.ok) { setStatus(st, (r.todo ? "🚧 " : "⚠️ ") + r.error, r.todo ? "todo" : "err"); body.innerHTML = ""; stockRows = []; return; }
+  stockRows = r.data || [];
+  setStatus(st, "ทั้งหมด " + stockRows.length + " บัญชี");
+  body.innerHTML = stockRows.map(s =>
+    "<tr><td>" + s.product_detail_id + "</td><td>" + (s.username ?? "—") + "</td><td>" +
+    (s.password ?? "—") + "</td><td>" + (s.use ?? "—") + "</td><td>" + (s.status ?? "—") + "</td><td>" +
+    '<button class="btn sm" onclick="editStockRow(' + s.product_detail_id + ')">แก้ไข</button> ' +
+    '<button class="btn sm del" onclick="deleteStockRow(' + s.product_detail_id + ')">ลบ</button>' +
+    "</td></tr>").join("");
+}
+async function addStock() {
+  const u = ($("#stockUser").value || "").trim(), p = ($("#stockPass").value || "").trim();
+  if (!u || !p) { alert("กรอก username และ password ให้ครบ"); return; }
+  const r = await api("/api/products/" + stockProductId + "/stock", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ qty: 1, username: u, password: p })
+  });
+  if (!r.ok) { alert((r.todo ? "🚧 " : "⚠️ ") + r.error); return; }
+  loadStock();
+}
+function editStockRow(pdId) {
+  const s = stockRows.find(x => x.product_detail_id === pdId);
+  if (!s) return;
+  editingStockId = pdId;
+  $("#seUser").value = s.username ?? "";
+  $("#sePass").value = s.password ?? "";
+  const useVal = (s.use !== undefined && s.use !== null && s.use !== "") ? Number(s.use)
+                 : (s.status === "ขายแล้ว" ? 1 : 0);
+  $("#seUse").value = useVal ? "1" : "0";
+  $("#stockEditModal").classList.remove("hidden");
+}
+async function saveStockEdit() {
+  const u = ($("#seUser").value || "").trim(), p = ($("#sePass").value || "").trim();
+  if (!u || !p) { alert("กรอก username และ password ให้ครบ"); return; }
+  const r = await api("/api/product-details/" + editingStockId, {
+    method: "PUT", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ username: u, password: p, use: parseInt($("#seUse").value, 10) })
+  });
+  if (!r.ok) { alert((r.todo ? "🚧 " : "⚠️ ") + r.error); return; }
+  $("#stockEditModal").classList.add("hidden");
+  loadStock();
+}
+async function deleteStockRow(pdId) {
+  if (!confirm("ยืนยันลบบัญชี #" + pdId + " ?")) return;
+  const r = await api("/api/product-details/" + pdId, { method: "DELETE" });
+  if (!r.ok) { alert((r.todo ? "🚧 " : "⚠️ ") + r.error); return; }
+  loadStock();
+}
+on("#btnAddStock", addStock);
+on("#btnStockClose", () => $("#stockModal").classList.add("hidden"));
+on("#btnStockEditSave", saveStockEdit);
+on("#btnStockEditCancel", () => $("#stockEditModal").classList.add("hidden"));

@@ -118,7 +118,10 @@ function renderTable(r) {
   const rows = r.data || [];
   if (rows.length === 0) { setStatus(st, "ไม่พบข้อมูล"); return; }
   setStatus(st, "พบ " + rows.length + " รายการ");
-  const cols = Object.keys(rows[0]);
+  // หน้าสินค้าลูกค้า: แสดงเฉพาะคอลัมน์ที่ต้องการ (กันตารางกว้างเมื่อ backend เพิ่มคอลัมน์ใหม่)
+  const PRODUCT_COLS = ["product_id", "name", "category", "price", "discount", "stock"];
+  let cols = Object.keys(rows[0]);
+  if (cfg.idKey === "product_id") cols = cols.filter(c => PRODUCT_COLS.includes(c));
   if (cfg.idKey === "product_id") {
     head.innerHTML = cols.map(c => "<th>" + c + "</th>").join("") + "<th>สั่งซื้อ</th>";
     body.innerHTML = rows.map(row => {
@@ -135,6 +138,9 @@ function renderTable(r) {
       let actions = "";
       if (!isOrders || row.status === "success") {
         actions = '<button class="btn sm" onclick="showOrderDetail(' + id + ')">ดูรายละเอียด</button>';
+      }
+      if (isOrders && row.status === "success") {
+        actions += ' <button class="btn sm add" onclick="openReview(' + id + ')">⭐ รีวิว</button>';
       }
       if (isOrders && row.status === "waitpay") {
         const amt = Number(row.total ?? 0);
@@ -196,6 +202,59 @@ on("#btnPaySuccess", paySuccess);
 on("#btnPayCancel", payCancel);
 on("#btnCheckCode", checkCode);
 on("#btnOdClose", () => $("#orderDetailModal").classList.add("hidden"));
+
+// ===== รีวิวสินค้าหลังชำระเงินเสร็จ =====
+const rvEsc = s => String(s ?? "").replace(/[&<>"']/g,
+  c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+let reviewOrderId = null;
+async function openReview(orderId) {
+  reviewOrderId = orderId;
+  const st = $("#rvStatus");
+  $("#rvTitle").textContent = "⭐ รีวิวออเดอร์ #" + orderId;
+  $("#rvBody").innerHTML = "";
+  $("#reviewModal").classList.remove("hidden");
+  setStatus(st, "กำลังโหลด...");
+  const d = await api("/api/orders/" + orderId);
+  if (!d.ok) { setStatus(st, (d.todo ? "🚧 " : "⚠️ ") + d.error, d.todo ? "todo" : "err"); return; }
+  // merge สินค้าเดิมซื้อหลายชิ้น → 1 แถว (review = user × product)
+  const byP = new Map();
+  (d.data || []).forEach(it => {
+    if (it.product_id && !byP.has(it.product_id)) byP.set(it.product_id, it.name);
+  });
+  if (byP.size === 0) { setStatus(st, "ไม่มีรายการสินค้า"); return; }
+  const rv = await api("/api/reviews?order_id=" + orderId);
+  const mine = {};
+  if (rv.ok) (rv.data || []).forEach(r => mine[r.product_id] = r);
+  setStatus(st, "");
+  $("#rvBody").innerHTML = [...byP.entries()].map(([pid, name]) => {
+    const m = mine[pid] || {};
+    const rate = Number(m.rating) || 5;
+    const opts = [1, 2, 3, 4, 5].map(n =>
+      '<option value="' + n + '"' + (n === rate ? " selected" : "") + ">" + n + " ★</option>").join("");
+    return '<tr data-pid="' + pid + '"><td>' + rvEsc(name) + "</td>" +
+      '<td><select class="rvRate">' + opts + "</select></td>" +
+      '<td><input class="rvComment" type="text" style="width:100%;padding:6px" value="' +
+      rvEsc(m.comment) + '" placeholder="ความคิดเห็น (ถ้ามี)"></td></tr>';
+  }).join("");
+}
+async function saveReview() {
+  const items = [...document.querySelectorAll("#rvBody tr[data-pid]")].map(tr => ({
+    product_id: Number(tr.dataset.pid),
+    rating: Number(tr.querySelector(".rvRate").value),
+    comment: tr.querySelector(".rvComment").value.trim()
+  }));
+  if (!items.length) { alert("ไม่มีรายการให้รีวิว"); return; }
+  if (items.some(x => x.rating < 1 || x.rating > 5)) { alert("ดาวต้องอยู่ระหว่าง 1-5"); return; }
+  const r = await api("/api/reviews", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ order_id: reviewOrderId, items })
+  });
+  if (!r.ok) { alert((r.todo ? "🚧 " : "⚠️ ") + r.error); return; }
+  $("#reviewModal").classList.add("hidden");
+  alert("บันทึกรีวิวแล้ว ⭐");
+}
+on("#btnReviewSave", saveReview);
+on("#btnReviewClose", () => $("#reviewModal").classList.add("hidden"));
 (async () => {
   await buildSearch();
   if (document.querySelector(".tab.active")) doSearch();

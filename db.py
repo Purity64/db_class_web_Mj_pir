@@ -43,6 +43,8 @@ def _todo(name):
 
 # ---------- สินค้า (product) ----------
 # stock = จำนวน product_detail ที่ยังไม่ถูกผูกกับ order_line
+# TODO: เพิ่ม p.detail ใน SELECT ให้ครบทุกคอลัมน์ของตาราง product
+#       (ฟอร์มแก้ไขใน /admin จะอ่านค่าเดิมได้)
 _STOCK_SQL = ("(SELECT COUNT(*) FROM product_detail pd "
               "WHERE pd.product_id = p.product_id AND pd.use = FALSE   and(pd.order_line_id IS NULL or pd.book_end_at <= NOW()))")
 
@@ -186,7 +188,7 @@ def add_to_Order(data, user_id):
     
     sql = """
     INSERT INTO order_line (order_id, product_id, unit_price, quantity)
-    SELECT %s, product_id, price, %s
+    SELECT %s,product_id , price * (100 - IFNULL(discount,0)) / 100, %s
     FROM product
     WHERE product_id = %s
     """
@@ -286,10 +288,12 @@ def confirm_cart(order_id):
 
     rows = run_query(sql, [order_id])
 
+    print(rows)
     for x in rows:
         order_line_id = x['order_line_id']  
         product_id = x['product_id']
         quantity = x['quantity']
+
 
         update_sql = """
             UPDATE product_detail pd
@@ -297,7 +301,7 @@ def confirm_cart(order_id):
                 SELECT product_detail_id,
                     ROW_NUMBER() OVER (PARTITION BY product_id ORDER BY product_detail_id ASC) AS row_num
                 FROM product_detail
-                WHERE order_line_id IS NULL AND product_id = %s
+                WHERE (order_line_id IS NULL or book_end_at < NOW() ) AND `use` = FALSE  AND  product_id = %s 
             ) stock ON pd.product_detail_id = stock.product_detail_id
             SET pd.order_line_id = %s ,
             pd.book_end_at = NOW() + INTERVAL 5 MINUTE
@@ -451,16 +455,15 @@ def delete_customer(cust_id):
 
 
 def create_product(data):
-    """เพิ่ม สินค้า ใหม่ — data: name, category, price, stock (form app.js)
-    + detail/img_url/discount ถ้าส่งมา
+    """เพิ่ม สินค้า ใหม่ — data: name, detail, category, price, stock (form app.js)
+    + discount ถ้าส่งมา
     stock = จำนวน product_detail (บัญชีสินค้า) ที่สร้างให้ทันที"""
-    # TODO: INSERT INTO product (name, detail, category, price, img_url, discount) VALUES (...)
+    # TODO: INSERT INTO product (name, detail, category, price, discount) VALUES (...)
     out = run_command(
-        """INSERT INTO product (name, detail, category, price, img_url, discount)
-           VALUES (%s, %s, %s, %s, %s, %s)""",
+        """INSERT INTO product (name, detail, category, price, discount)
+           VALUES (%s, %s, %s, %s, %s)""",
         (data["name"], data.get("detail") or "", data.get("category") or "",
-         data.get("price", 0), blank_to_none(data.get("img_url")),
-         blank_to_none(data.get("discount")))
+         data.get("price", 0), blank_to_none(data.get("discount")))
     )
     pid = out["new_id"]
     try:
@@ -477,7 +480,8 @@ def create_product(data):
 
 def update_product(product_id, data):
     """แก้ไข สินค้า ตาม product_id"""
-    # TODO: UPDATE product SET ... WHERE product_id=%s
+    # TODO: ขยายให้ UPDATE name, detail, category, price, discount
+    #       WHERE product_id = %s   (ตอนนี้แก้ได้แค่ name)
     return run_command(
        """  
         update	product
@@ -486,6 +490,123 @@ def update_product(product_id, data):
         """,
         (data["name"] , product_id)
    )
+
+
+# ---------- สต็อก (product_detail) ของสินค้า — /admin จัดการ ----------
+def get_product_stock(product_id):
+    """ดึงรายการบัญชีสต็อก (product_detail) ของสินค้านี้
+    คืน list ของ {product_detail_id, username, password, status}
+    status = 'ว่าง' (order_line_id IS NULL) / 'จอง' (มี order_line_id, use=FALSE, book_end_at ยังไม่หมด) / 'ขายแล้ว' (use=TRUE)"""
+    
+    sql = """
+        SELECT 
+            product_detail_id, 
+            username, 
+            password,
+            CASE 
+                WHEN `use` = TRUE THEN 'ขายแล้ว'
+                WHEN order_line_id IS NOT NULL AND `use` = FALSE AND book_end_at > NOW() THEN 'จอง'
+                WHEN order_line_id IS NULL THEN 'ว่าง'
+                ELSE 'ว่าง'
+            END AS status
+        FROM product_detail 
+        WHERE product_id = %s
+    """
+    return run_query(sql, [product_id])
+
+
+def add_product_stock(product_id, qty, username=None, password=None):
+    """เพิ่มบัญชีสต็อกใหม่ — ถ้า username/password เป็น None → สร้างอัตโนมัติ qty แถว
+    (acc_{pid}_{n} / pass_{pid}_{n} ต่อจากเลขล่าสุด)  ถ้าส่ง username มา → สร้าง 1 แถวด้วยค่านั้น"""
+    # TODO: ถ้า username is not None → INSERT 1 แถวด้วย username/password ที่ส่งมา
+    #       ถ้า None → qty <= 0 → raise ValueError("จำนวนไม่ถูกต้อง")
+    #                  หาเลข MAX ของ acc_{pid}_.. แล้ว INSERT qty แถวต่อจากนั้น
+    _todo("add_product_stock")
+
+
+def update_product_detail(pd_id, username, password, use):
+    """แก้ username/password/use ของบัญชีสต็อก — ได้เฉพาะบัญชีว่าง (order_line_id IS NULL)
+    use = 0 (ยังไม่ออกของ) / 1 (ออกของแล้ว)"""
+    # TODO: UPDATE product_detail SET username=%s, password=%s, `use`=%s
+    #       WHERE product_detail_id = %s AND order_line_id IS NULL
+    #       ถ้า affected = 0 → raise ValueError("แก้ไขไม่สำเร็จ (บัญชีถูกจองหรือขายไปแล้ว)")
+    _todo("update_product_detail")
+
+
+def delete_product_detail(pd_id):
+    """ลบบัญชีสต็อก — ได้เฉพาะบัญชีว่าง (order_line_id IS NULL AND use = FALSE)"""
+    # TODO: DELETE FROM product_detail
+    #       WHERE product_detail_id = %s AND order_line_id IS NULL AND use = FALSE
+    #       ถ้า affected = 0 → raise ValueError("ลบไม่ได้ (บัญชีถูกจองหรือขายไปแล้ว)")
+    _todo("delete_product_detail")
+
+
+# ---------- โค้ดส่วนลด (code) — /admin จัดการ ----------
+def search_codes(filters):
+    """ค้นหาโค้ดส่วนลด — filters: code_name (LIKE), discount_method, status (''=ทั้งหมด, '1'=เปิด, '0'=ปิด)
+    คืน list ของ {code_id, code_name, discount, discount_method, max_uses, status, end_at}"""
+    # TODO: SELECT code_id, code_name, discount, discount_method, max_uses, status, end_at
+    #       FROM code
+    #       + filters["code_name"]     → AND code_name LIKE %s ('%...%')
+    #       + filters["discount_method"] → AND discount_method = %s
+    #       + filters["status"] ('1'/'0') → AND status = %s (แปลงเป็น boolean)
+    #       ORDER BY code_id DESC
+    _todo("search_codes")
+
+
+def get_code(code_id):
+    """ดึงโค้ดเดียว — ไม่พบ → raise ValueError("ไม่พบโค้ดนี้")"""
+    # TODO: SELECT code_id, code_name, discount, discount_method, max_uses, status, end_at
+    #       FROM code WHERE code_id = %s
+    _todo("get_code")
+
+
+def create_code(data):
+    """เพิ่มโค้ดใหม่ — data: code_name, discount, discount_method, max_uses, status, end_at
+    status ส่งเป็น "1"/"0" (แปลงเป็น boolean), end_at ว่าง → NULL"""
+    # TODO: INSERT INTO code (code_name, discount, discount_method, max_uses, status, end_at)
+    #       VALUES (%s, %s, %s, %s, %s, %s)
+    #       — ตรวจ code_name ซ้ำ (raise ValueError "โค้ดนี้มีอยู่แล้ว"), discount > 0
+    _todo("create_code")
+
+
+def update_code(code_id, data):
+    """แก้โค้ด — ฟิลด์เดียวกับ create_code"""
+    # TODO: UPDATE code SET code_name=%s, discount=%s, discount_method=%s,
+    #              max_uses=%s, status=%s, end_at=%s
+    #       WHERE code_id = %s   (code_name ซ้ำกับโค้ดอื่น → raise ValueError)
+    _todo("update_code")
+
+
+def delete_code(code_id):
+    """ลบโค้ด — ห้ามลบโค้ดที่เคยถูกใช้ (มีใน code_line หรือ payment)"""
+    # TODO: ถ้ามี code_line หรือ payment อ้าง code_id นี้
+    #       → raise ValueError("โค้ดถูกใช้แล้ว — ปิดการใช้งาน (status=0) แทนการลบ")
+    #       ไม่งั้น DELETE FROM code WHERE code_id = %s
+    _todo("delete_code")
+
+
+# ---------- รีวิว (review) — หน้า /home แท็บออเดอร์ หลังจ่ายเงิน ----------
+def get_my_reviews(user_id, order_id):
+    """รีวิวของฉันสำหรับสินค้าในออเดอร์นี้ — คืน list ของ {product_id, rating, comment}
+    (ใช้เติมค่าเดิมในฟอร์มรีวิวถ้าเคยรีวิวไว้แล้ว)"""
+    # TODO: SELECT DISTINCT r.product_id, r.rating, r.comment
+    #       FROM review r
+    #       WHERE r.user_id = %s
+    #         AND r.product_id IN (SELECT product_id FROM order_line WHERE order_id = %s)
+    _todo("get_my_reviews")
+
+
+def save_reviews(user_id, order_id, items):
+    """บันทึกรีวิวทั้งชุดของออเดอร์ — items = [{product_id, rating, comment}, ...]
+    1 คน ต่อ 1 สินค้า = 1 รีวิว (มีเดิม → UPDATE, ไม่มี → INSERT)"""
+    # TODO: 1) เช็คออเดอร์เป็นของ user_id และ status = 'success'
+    #          (ไม่ใช่ → raise ValueError("ออเดอร์นี้ยังรีวิวไม่ได้"))
+    #       2) วน items: rating ต้อง 1-5 (นอกนั้น raise ValueError)
+    #          มีเดิม (user_id + product_id) → UPDATE rating/comment
+    #          ไม่มี → INSERT (create_at เป็นค่า default)
+    #       ⚠️ ยังไม่มี composite PK (user_id, product_id) → ห้ามใช้ ON DUPLICATE KEY
+    _todo("save_reviews")
 
 
 

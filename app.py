@@ -125,6 +125,53 @@ def product_update(_id):
 def product_delete(_id):
     return safe(db.delete_product, _id)
 
+# ---- สต็อก (product_detail) ของสินค้า — /admin จัดการ ----
+@app.route("/api/products/<int:_id>/stock", methods=["GET"])
+def product_stock_list(_id):
+    return safe(db.get_product_stock, _id)
+
+@app.route("/api/products/<int:_id>/stock", methods=["POST"])
+def product_stock_add(_id):
+    d = request.get_json(silent=True) or {}
+    return safe(db.add_product_stock, _id,
+                d.get("qty", 0),
+                (d.get("username") or "").strip() or None,
+                (d.get("password") or "").strip() or None)
+
+@app.route("/api/product-details/<int:pd_id>", methods=["PUT"])
+def product_detail_update(pd_id):
+    d = request.get_json(silent=True) or {}
+    return safe(db.update_product_detail, pd_id,
+                (d.get("username") or "").strip(),
+                (d.get("password") or "").strip(),
+                1 if str(d.get("use", 0)) == "1" else 0)
+
+@app.route("/api/product-details/<int:pd_id>", methods=["DELETE"])
+def product_detail_delete(pd_id):
+    return safe(db.delete_product_detail, pd_id)
+
+# ---- โค้ดส่วนลด (code) — /admin จัดการ ----
+@app.route("/api/codes", methods=["GET"])
+def code_list():
+    return safe(db.search_codes, request.args.to_dict())
+
+@app.route("/api/codes", methods=["POST"])
+def code_create():
+    return safe(db.create_code, request.get_json(silent=True) or {})
+
+@app.route("/api/codes/<int:_id>", methods=["GET"])
+def code_get(_id):
+    return safe(db.get_code, _id)
+
+@app.route("/api/codes/<int:_id>", methods=["PUT"])
+def code_update(_id):
+    return safe(db.update_code, _id, request.get_json(silent=True) or {})
+
+@app.route("/api/codes/<int:_id>", methods=["DELETE"])
+def code_delete(_id):
+    return safe(db.delete_code, _id)
+
+
 # ---- ออเดอร์ user / ตะกร้า ----
 def _require_user():
     uid = current_user_id()
@@ -177,7 +224,40 @@ def orders_list():
 
 @app.route("/api/orders/<int:_id>", methods=["GET"])
 def order_get(_id):
+    # IDOR guard: ออเดอร์ต้องเป็นของตัวเอง (เช็คจากรายการออเดอร์ของ user นี้)
+    uid, err = _require_user()
+    if err:
+        return err
+    try:
+        mine = db.search_orders_user({}, uid)
+    except NotImplementedError as e:
+        return jsonify({"ok": False, "todo": True, "error": str(e)}), 501
+    if not any(o.get("order_id") == _id for o in (mine or [])):
+        return jsonify({"ok": False, "error": "ไม่พบออเดอร์นี้ของคุณ"}), 403
     return safe(db.get_order, _id)
+
+
+# ---- รีวิว (review) หลังชำระเงิน ----
+@app.route("/api/reviews", methods=["GET"])
+def review_list():
+    uid, err = _require_user()
+    if err:
+        return err
+    order_id = request.args.get("order_id", type=int)
+    if not order_id:
+        return jsonify({"ok": False, "error": "ต้องระบุ order_id"}), 400
+    return safe(db.get_my_reviews, uid, order_id)
+
+@app.route("/api/reviews", methods=["POST"])
+def review_save():
+    uid, err = _require_user()
+    if err:
+        return err
+    d = request.get_json(silent=True) or {}
+    if not d.get("order_id"):
+        return jsonify({"ok": False, "error": "ต้องระบุ order_id"}), 400
+    return safe(db.save_reviews, uid, int(d.get("order_id")), d.get("items") or [])
+
 
 
 @app.route("/api/orders/<int:_id>/pay", methods=["POST"])
