@@ -7,9 +7,9 @@
 //   ช่อง FK อื่น ๆ ทำแบบเดียวกันได้ — เปลี่ยน "type": "number" เป็น select + optionsFrom
 const ENTITIES = {
   "customers": {
-    "label": "ลูกค้า",
+    "label": "user",
     "api": "/api/customers",
-    "idKey": "cust_id",
+    "idKey": "user_id",
     "search": [
       {
         "key": "name",
@@ -22,13 +22,13 @@ const ENTITIES = {
         "type": "text"
       },
       {
-        "key": "tier",
-        "label": "ระดับ",
+        "key": "role",
+        "label": "role",
         "type": "select",
         "options": [
           "",
-          "normal",
-          "vip"
+          "user",
+          "admin"
         ]
       }
     ],
@@ -44,17 +44,17 @@ const ENTITIES = {
         "type": "text"
       },
       {
-        "key": "address",
-        "label": "ที่อยู่",
+        "key": "password",
+        "label": "รหัสผ่าน",
         "type": "text"
       },
       {
-        "key": "tier",
-        "label": "ระดับ",
+        "key": "role",
+        "label": "role",
         "type": "select",
         "options": [
-          "normal",
-          "vip"
+          "user",
+          "admin"
         ]
       }
     ]

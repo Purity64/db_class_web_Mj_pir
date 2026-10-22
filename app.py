@@ -61,7 +61,15 @@ def page_home():
 def page_login():
     if current_user_id() is None:
         return redirect("/")
+    if current_role() != "user": return redirect("/admin")
     return render_template("home.html")
+
+@app.route("/admin")
+def page_admin():
+    uid = current_user_id()
+    if uid is None: return redirect("/")
+    if current_role() != "admin": return redirect("/home")
+    return render_template("admin.html")
 
 @app.route("/test")
 def page_test():
@@ -206,7 +214,12 @@ def report_summary():
 @app.route("/api/reports")
 def report_list():
     """รายชื่อรายงานทั้งหมด (อ่านจาก db.REPORTS) ให้หน้าเว็บสร้างกล่องรายงาน"""
-    return jsonify({"ok": True, "data": [{"key": k, "title": t} for k, t, _ in db.REPORTS]})
+    data = [{"key": k, "title": t} for k, t, _ in db.REPORTS]
+    
+    # print แสดงโครงสร้างข้อมูลจริงใน Console
+    print({"ok": True, "data": data})
+    
+    return jsonify({"ok": True, "data": data})
 
 @app.route("/api/reports/<key>")
 def report_run(key):
