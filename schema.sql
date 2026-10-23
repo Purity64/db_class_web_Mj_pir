@@ -53,7 +53,7 @@ CREATE TABLE shop_order (
     created_at			timestamp 	default CURRENT_TIMESTAMP(),
     updated_at			timestamp 	default CURRENT_TIMESTAMP()		on	update	current_timestamp(),
     end_at      TIMESTAMP DEFAULT (CURRENT_TIMESTAMP + INTERVAL 5 MINUTE),
-    constraint	fk_user foreign key (user_id) references users(user_id)
+    constraint	fk_user foreign key (user_id) references users(user_id) ON DELETE CASCADE
 );
 
 CREATE TABLE order_line ( 
@@ -65,7 +65,7 @@ CREATE TABLE order_line (
     unit_price 		decimal(10,2) not null,
     quantity		int not null,
     
-    constraint	fk_order 	foreign key(order_id) 	references shop_order(order_id),
+    constraint	fk_order 	foreign key(order_id) 	references shop_order(order_id) ON DELETE CASCADE,
     constraint	fk_product	foreign key(product_id)	references product(product_id)
 );
 
@@ -79,10 +79,10 @@ CREATE table product_detail(
     created_at			timestamp 	default CURRENT_TIMESTAMP(),
     updated_at			timestamp 	default CURRENT_TIMESTAMP()		on	update	current_timestamp(),
     book_end_at         timestamp   null,
-    use boolean not null default 0,	-- 0=ของยังไม่ออก 1=ของออกแล้ว
+    `use` boolean not null default 0,	-- 0=ของยังไม่ออก 1=ของออกแล้ว
     
     constraint	fk_product_detail_product 		foreign key (product_id) references product(product_id),
-    constraint 	fk_order_line	foreign key (order_line_id) references order_line(order_line_id)
+    constraint 	fk_order_line	foreign key (order_line_id) references order_line(order_line_id) ON DELETE CASCADE
 );
 
 CREATE TABLE review (             -- M:N: customer × product
@@ -94,6 +94,7 @@ CREATE TABLE review (             -- M:N: customer × product
     comment		text,
 
     create_at	timestamp 	default CURRENT_TIMESTAMP(),
+    constraint fk_review_user foreign key (user_id) references users(user_id) ON DELETE CASCADE,
     constraint 	chk_rating 	check 	(rating	between 1 and 5)
 );
 
@@ -118,8 +119,8 @@ CREATE TABLE code_line (
     create_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP(),
 
     constraint fk_codeline_code 	foreign key(code_id) 	references code(code_id),
-    constraint fk_codeline_user 	foreign key(user_id) 	references users(user_id),
-    constraint fk_codeline_order	foreign key(order_id)	references shop_order(order_id)
+    constraint fk_codeline_user 	foreign key(user_id) 	references users(user_id) ON DELETE CASCADE,
+    constraint fk_codeline_order	foreign key(order_id)	references shop_order(order_id) ON DELETE CASCADE
 );
 
 CREATE TABLE payment (            -- 1:M จาก shop_order
@@ -130,7 +131,7 @@ CREATE TABLE payment (            -- 1:M จาก shop_order
     code_id	int null,			--	fk 
     create_at 	timestamp 	default CURRENT_TIMESTAMP(),
     
-    constraint 	 fk_payment_order	foreign key(order_id)	references	shop_order(order_id),
+    constraint 	 fk_payment_order	foreign key(order_id)	references	shop_order(order_id) ON DELETE CASCADE,
     constraint 	fk_code				foreign key(code_id)	references 	code(code_id)
 );
 
@@ -143,9 +144,9 @@ values	('Somchai', 'somchai@example.com', '1234', 'user'),
 		('Admin', 'admin@example.com', '1234', 'admin');
 
 INSERT 	INTO product (name, detail, category, price, discount)
-VALUES  ('Game Account A', 'บัญชีเกมระดับเริ่มต้น', 'Game', 500.00, 0.00),
-        ('Game Account B', 'บัญชีเกมระดับกลาง', 'Game', 1000.00, 100.00),
-        ('Software License', 'บัญชีซอฟต์แวร์ทดลอง', 'Software', 300.00, NULL);
+VALUES  ('Blox Fruit ผลพระตื่น', 'ไก่ตัน ผลพระ ', 'Blox Fruit', 500.00, 0.00),
+        ('Blox Fruit ผลแม็กม่าตื่น', 'ไก่ตัน ผลแม็กม่า', 'Blox Fruit', 1000.00, 100.00),
+        ('King Legacy ผลน้ำแข็ง', 'ไก่ตัน ผลน้ำแข็ง', 'King Legacy', 300.00, NULL);
 
 INSERT 	INTO shop_order (user_id, status)
 VALUES  (1, 'success'),

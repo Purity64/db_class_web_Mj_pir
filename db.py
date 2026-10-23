@@ -84,8 +84,10 @@ def get_product(product_id):
 
 def delete_product(product_id):
     """ลบ สินค้า ตาม product_id"""
-    # TODO: DELETE FROM product WHERE product_id=%s
-    _todo("delete_product")
+    return run_command(
+        "DELETE FROM product WHERE product_id = %s",
+        (product_id,)
+    )
 
 # ---------- ออเดอร์ (shop_order) ของผู้ใช้ ----------
 def search_orders_user(filters, user_id):
@@ -485,9 +487,8 @@ def update_customer(cust_id, data):
 
 
 def delete_customer(cust_id):
-    """ลบ ลูกค้า ตาม cust_id"""
-    # TODO: DELETE FROM customer WHERE cust_id=%s
-    _todo("delete_customer")
+    """ลบ user และข้อมูลที่อ้างถึงผ่าน ON DELETE CASCADE"""
+    return run_command("DELETE FROM users WHERE user_id = %s", (cust_id,))
 
 # ---------- สินค้า (product) ----------
 

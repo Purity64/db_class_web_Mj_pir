@@ -182,6 +182,11 @@ def _require_user():
     uid = current_user_id()
     if uid is None:
         return None, (jsonify({"ok": False, "error": "กรุณาเข้าสู่ระบบ"}), 401)
+    if not db.get_customer(uid):
+        resp = jsonify({"ok": False, "error": "บัญชีนี้ถูกลบแล้ว กรุณาเข้าสู่ระบบใหม่"})
+        resp.delete_cookie("user_id")
+        resp.delete_cookie("role")
+        return None, (resp, 401)
     return uid, None
 
 
@@ -221,9 +226,8 @@ def cart_confirm():
 
 @app.route("/api/orders", methods=["GET"])
 def orders_list():
-    uid = current_user_id()
-    if uid is None:
-        return jsonify({"ok": False, "error": "กรุณาเข้าสู่ระบบ"}), 401
+    uid, err = _require_user()
+    if err: return err
     filters = {k: v for k, v in request.args.items() if v}
     return safe(db.search_orders_user, filters, uid)
 
@@ -354,6 +358,11 @@ def me():
     uid = current_user_id()
     if uid is None:
         return jsonify({"ok": True, "data": None})
+    if not db.get_customer(uid):
+        resp = jsonify({"ok": True, "data": None})
+        resp.delete_cookie("user_id")
+        resp.delete_cookie("role")
+        return resp
     return jsonify({"ok": True, "data": {
         "user_id": uid, "role": current_role()}})
 
