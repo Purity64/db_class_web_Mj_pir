@@ -78,17 +78,6 @@ def get_product(product_id):
     return rows[0]
 
 
-
-
-
-
-def delete_product(product_id):
-    """ลบ สินค้า ตาม product_id"""
-    return run_command(
-        "DELETE FROM product WHERE product_id = %s",
-        (product_id,)
-    )
-
 # ---------- ออเดอร์ (shop_order) ของผู้ใช้ ----------
 def search_orders_user(filters, user_id):
     """ออเดอร์ของผู้ใช้คนนี้ (JOIN order_line เพื่อนับชิ้น + คิดยอดรวม)"""
@@ -637,18 +626,18 @@ def search_codes(filters):
 		        ,end_at
         from 	code 
         WHERE   1 = 1
-        ORDER BY code_id DESC
     """
     params = []
     if filters.get("code_name"):
         sql += " AND code_name LIKE %s"
         params.append("%" + filters["code_name"] + "%")
     if filters.get("discount_method"):
-        sql += " AND discount_method = %s"
+        sql += " AND discount_method LIKE %s"
         params.append("%" + filters["discount_method"] + "%")
     if filters.get("status"):
         sql += " AND status = %s"
         params.append(filters["status"])
+    sql += " ORDER BY code_id DESC"
     return run_query(sql, params)
 
 def get_code(code_id):
