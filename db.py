@@ -46,7 +46,7 @@ def _todo(name):
 # TODO: เพิ่ม p.detail ใน SELECT ให้ครบทุกคอลัมน์ของตาราง product
 #       (ฟอร์มแก้ไขใน /admin จะอ่านค่าเดิมได้)
 _STOCK_SQL = ("(SELECT COUNT(*) FROM product_detail pd "
-              "WHERE pd.product_id = p.product_id AND pd.use = FALSE   and(pd.order_line_id IS NULL or pd.book_end_at <= NOW()))")
+              "WHERE pd.product_id = p.product_id AND pd.`use` = FALSE   and(pd.order_line_id IS NULL or pd.book_end_at <= NOW()))")
 
 _PRODUCT_SELECT = ("SELECT p.product_id, p.name, p.category, p.price, p.discount, "
                    + _STOCK_SQL + " AS stock FROM product p")
@@ -352,8 +352,8 @@ def pay_order(user_id, order_id, code_name=None):
     run_command(
         "UPDATE product_detail pd "
         "JOIN order_line ol ON ol.order_line_id = pd.order_line_id "
-        "SET pd.use = TRUE "
-        "WHERE ol.order_id = %s AND pd.use = FALSE",
+        "SET pd.`use` = TRUE "
+        "WHERE ol.order_id = %s AND pd.`use` = FALSE",
         (order_id,))
     run_command(
         "UPDATE shop_order SET status = 'success' WHERE order_id = %s",
@@ -503,6 +503,7 @@ def get_product_stock(product_id):
             product_detail_id, 
             username, 
             password,
+            `use`,
             CASE 
                 WHEN `use` = TRUE THEN 'ขายแล้ว'
                 WHEN order_line_id IS NOT NULL AND `use` = FALSE AND book_end_at > NOW() THEN 'จอง'
@@ -518,27 +519,73 @@ def get_product_stock(product_id):
 def add_product_stock(product_id, qty, username=None, password=None):
     """เพิ่มบัญชีสต็อกใหม่ — ถ้า username/password เป็น None → สร้างอัตโนมัติ qty แถว
     (acc_{pid}_{n} / pass_{pid}_{n} ต่อจากเลขล่าสุด)  ถ้าส่ง username มา → สร้าง 1 แถวด้วยค่านั้น"""
-    # TODO: ถ้า username is not None → INSERT 1 แถวด้วย username/password ที่ส่งมา
-    #       ถ้า None → qty <= 0 → raise ValueError("จำนวนไม่ถูกต้อง")
-    #                  หาเลข MAX ของ acc_{pid}_.. แล้ว INSERT qty แถวต่อจากนั้น
-    _todo("add_product_stock")
+    product_id = int(product_id)
+    if username is not None:
+        username = str(username).strip()
+        password = str(password or "").strip()
+        if not username or not password:
+            raise ValueError("กรุณากรอก username และ password ให้ครบ")
+        return run_command(
+            "INSERT INTO product_detail (product_id, username, password) VALUES (%s, %s, %s)",
+            (product_id, username, password))
+
+    try:
+        qty = int(qty)
+    except (TypeError, ValueError):
+        raise ValueError("จำนวนสต็อกไม่ถูกต้อง")
+    if qty <= 0:
+        raise ValueError("จำนวนสต็อกต้องมากกว่า 0")
+
+    # ต่อเลขบัญชีจากรายการเดิม เพื่อไม่ให้ username ที่สร้างอัตโนมัติซ้ำ
+    prefix = f"acc_{product_id}_"
+    existing = run_query(
+        "SELECT username FROM product_detail WHERE product_id = %s AND username LIKE %s",
+        (product_id, prefix + "%"))
+    next_number = 1
+    for row in existing:
+        value = row.get("username") or ""
+        suffix = value[len(prefix):] if value.startswith(prefix) else ""
+        if suffix.isdigit():
+            next_number = max(next_number, int(suffix) + 1)
+
+    conn = get_connection()
+    cur = conn.cursor()
+    try:
+        for number in range(next_number, next_number + qty):
+            cur.execute(
+                "INSERT INTO product_detail (product_id, username, password) VALUES (%s, %s, %s)",
+                (product_id, f"{prefix}{number:02d}", f"pass_{product_id}_{number:02d}"))
+        conn.commit()
+        return {"new_id": cur.lastrowid, "affected": qty}
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        cur.close()
+        conn.close()
 
 
 def update_product_detail(pd_id, username, password, use):
     """แก้ username/password/use ของบัญชีสต็อก — ได้เฉพาะบัญชีว่าง (order_line_id IS NULL)
     use = 0 (ยังไม่ออกของ) / 1 (ออกของแล้ว)"""
-    # TODO: UPDATE product_detail SET username=%s, password=%s, `use`=%s
-    #       WHERE product_detail_id = %s AND order_line_id IS NULL
-    #       ถ้า affected = 0 → raise ValueError("แก้ไขไม่สำเร็จ (บัญชีถูกจองหรือขายไปแล้ว)")
-    _todo("update_product_detail")
+    result = run_command(
+        "UPDATE product_detail SET username = %s, password = %s, `use` = %s "
+        "WHERE product_detail_id = %s AND order_line_id IS NULL AND `use` = FALSE",
+        (username, password, int(use), pd_id))
+    if result["affected"] == 0:
+        raise ValueError("แก้ไขไม่สำเร็จ (บัญชีถูกจองหรือขายไปแล้ว)")
+    return result
 
 
 def delete_product_detail(pd_id):
     """ลบบัญชีสต็อก — ได้เฉพาะบัญชีว่าง (order_line_id IS NULL AND use = FALSE)"""
-    # TODO: DELETE FROM product_detail
-    #       WHERE product_detail_id = %s AND order_line_id IS NULL AND use = FALSE
-    #       ถ้า affected = 0 → raise ValueError("ลบไม่ได้ (บัญชีถูกจองหรือขายไปแล้ว)")
-    _todo("delete_product_detail")
+    result = run_command(
+        "DELETE FROM product_detail WHERE product_detail_id = %s "
+        "AND order_line_id IS NULL AND `use` = FALSE",
+        (pd_id,))
+    if result["affected"] == 0:
+        raise ValueError("ลบไม่ได้ (บัญชีถูกจองหรือขายไปแล้ว)")
+    return result
 
 
 # ---------- โค้ดส่วนลด (code) — /admin จัดการ ----------
@@ -551,39 +598,129 @@ def search_codes(filters):
     #       + filters["discount_method"] → AND discount_method = %s
     #       + filters["status"] ('1'/'0') → AND status = %s (แปลงเป็น boolean)
     #       ORDER BY code_id DESC
-    _todo("search_codes")
-
+    sql = """
+        select 	code_id
+		        ,code_name 
+		        ,discount 
+		        ,discount_method 
+		        ,max_uses 
+		        ,status
+		        ,end_at
+        from 	code 
+        WHERE   1 = 1
+        ORDER BY code_id DESC
+    """
+    params = []
+    if filters.get("code_name"):
+        sql += " AND code_name LIKE %s"
+        params.append("%" + filters["code_name"] + "%")
+    if filters.get("discount_method"):
+        sql += " AND discount_method = %s"
+        params.append("%" + filters["discount_method"] + "%")
+    if filters.get("status"):
+        sql += " AND status = %s"
+        params.append(filters["status"])
+    return run_query(sql, params)
 
 def get_code(code_id):
     """ดึงโค้ดเดียว — ไม่พบ → raise ValueError("ไม่พบโค้ดนี้")"""
     # TODO: SELECT code_id, code_name, discount, discount_method, max_uses, status, end_at
     #       FROM code WHERE code_id = %s
-    _todo("get_code")
+    rows = run_query("""
+                        SELECT code_id , code_name , discount , discount_method , max_uses , status , end_at
+                        FROM code
+                        WHERE code_id = %s
+                    """, (code_id,))
+    return rows[0] if rows else None
 
 
 def create_code(data):
     """เพิ่มโค้ดใหม่ — data: code_name, discount, discount_method, max_uses, status, end_at
     status ส่งเป็น "1"/"0" (แปลงเป็น boolean), end_at ว่าง → NULL"""
-    # TODO: INSERT INTO code (code_name, discount, discount_method, max_uses, status, end_at)
-    #       VALUES (%s, %s, %s, %s, %s, %s)
-    #       — ตรวจ code_name ซ้ำ (raise ValueError "โค้ดนี้มีอยู่แล้ว"), discount > 0
-    _todo("create_code")
+    
+    code_name = (data.get("code_name") or "").strip()
+    discount_raw = data.get("discount")
+    discount_method = data.get("discount_method") if data.get("discount_method") in ("money", "percent") else "money"
+    max_uses = data.get("max_uses")
+    status_raw = data.get("status")
+    status = True if status_raw in ('1',1,True) else False
+    end_at = data.get("end_at")
+    if not end_at or end_at == "":
+        end_at = None
 
+    if not code_name:
+        raise ValueError("กรอกชื่อโค้ด")
+    
+    try:
+        discount = float(discount_raw)
+    except (ValueError, TypeError):
+        raise ValueError("กรอกตัวเลขให้ถูกต้อง")
+    if run_query("SELECT 1 FROM code WHERE code_name = %s", (code_name,)):
+        raise ValueError("โค้ดชือนี้ถูกใช้ไปแล้ว")
+    return run_command(
+        "INSERT INTO code (code_name, discount, discount_method, max_uses, status, end_at) VALUES (%s, %s, %s, %s, %s, %s)",
+        (code_name, discount, discount_method, max_uses, status, end_at)
+    )
 
 def update_code(code_id, data):
     """แก้โค้ด — ฟิลด์เดียวกับ create_code"""
     # TODO: UPDATE code SET code_name=%s, discount=%s, discount_method=%s,
     #              max_uses=%s, status=%s, end_at=%s
     #       WHERE code_id = %s   (code_name ซ้ำกับโค้ดอื่น → raise ValueError)
-    _todo("update_code")
+    code_name = (data.get("code_name") or "").strip()
+    discount_raw = data.get("discount")
+    discount_method = data.get("discount_method") if data.get("discount_method") in ("money", "percent") else "money"
+    max_uses = data.get("max_uses")
+    status_raw = data.get("status")
+    status = True if status_raw in ('1',1,True) else False
+    end_at = data.get("end_at")
+    if not end_at or end_at == "":
+            end_at = None
+    
+    if not code_name:
+            raise ValueError("กรอกชื่อโค้ด")
+        
+    try:
+            discount = float(discount_raw)
+    except (ValueError, TypeError):
+            raise ValueError("กรอกตัวเลขให้ถูกต้อง")
+    if run_query("SELECT 1 FROM code WHERE code_name = %s", (code_name,)):
+            raise ValueError("โค้ดชือนี้ถูกใช้ไปแล้ว")
+
+    return run_command(
+        """
+        UPDATE code
+        SET code_name = %s,
+            discount = %s,
+            discount_method = %s,
+            max_uses = %s,
+            status = %s,
+            end_at = %s
+        WHERE code_id = %s
+        """,
+        (code_name, discount, discount_method, max_uses, status, end_at, code_id)
+   )
+
 
 
 def delete_code(code_id):
     """ลบโค้ด — ห้ามลบโค้ดที่เคยถูกใช้ (มีใน code_line หรือ payment)"""
-    # TODO: ถ้ามี code_line หรือ payment อ้าง code_id นี้
-    #       → raise ValueError("โค้ดถูกใช้แล้ว — ปิดการใช้งาน (status=0) แทนการลบ")
-    #       ไม่งั้น DELETE FROM code WHERE code_id = %s
-    _todo("delete_code")
+    
+    used_in_code_line = run_query(
+        "SELECT 1 FROM code_line WHERE code_id = %s LIMIT 1", 
+        (code_id,)
+    )
+    used_in_payment = run_query(
+        "SELECT 1 FROM payment WHERE code_id = %s LIMIT 1", 
+        (code_id,)
+    )
+    if used_in_code_line or used_in_payment:
+        raise ValueError("โค้ดถูกใช้แล้ว — ปิดการใช้งาน (status=0) แทนการลบ")
+        
+    return run_command(
+        "DELETE FROM code WHERE code_id = %s",
+        (code_id,)
+    )
 
 
 # ---------- รีวิว (review) — หน้า /home แท็บออเดอร์ หลังจ่ายเงิน ----------
@@ -628,7 +765,18 @@ def report_summary():
              FROM product) AS products,
 
             (SELECT COUNT(*)
-             FROM shop_order) AS orders
+             FROM shop_order) AS orders,
+
+            (SELECT COALESCE(SUM(amount_pay), 0)
+             FROM payment
+             WHERE create_at >= DATE_FORMAT(CURRENT_DATE(), '%Y-%m-01')
+               AND create_at < DATE_FORMAT(CURRENT_DATE() + INTERVAL 1 MONTH, '%Y-%m-01')) AS payment_month,
+
+               mon
+
+            (SELECT avg(rating)
+             FROM review) AS  avg_review
+
         """
     )
     return rows[0]
