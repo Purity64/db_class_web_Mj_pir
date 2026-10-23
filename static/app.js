@@ -102,12 +102,6 @@ const ENTITIES = {
         "key": "discount",
         "label": "ส่วนลด",
         "type": "number"
-      },
-      {
-        "key": "stock",
-        "label": "จำนวนสต็อก (ตอนเพิ่มใหม่)",
-        "type": "number",
-        "createOnly": true
       }
     ]
   },

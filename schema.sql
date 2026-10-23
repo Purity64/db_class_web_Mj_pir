@@ -35,6 +35,7 @@ CREATE TABLE product (
     detail		text null,
     category	varchar(100),
     price		decimal(10,2) not null,
+    open_product enum("open" , "close" , "none"),
 
     discount 	decimal(10,2) null default null,
     created_at	timestamp 	default CURRENT_TIMESTAMP(),

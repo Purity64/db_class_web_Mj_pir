@@ -92,7 +92,12 @@ def search_orders_user(filters, user_id):
                     COUNT(ol.order_line_id) AS items,
                     IFNULL(SUM(ol.quantity * ol.unit_price), 0) AS total,
                     (SELECT IFNULL(SUM(p.amount_pay), 0) FROM payment p
-                      WHERE p.order_id = o.order_id) AS paid
+                      WHERE p.order_id = o.order_id) AS paid,
+                    (SELECT COUNT(*) FROM order_line o2
+                      WHERE o2.order_id = o.order_id
+                        AND NOT EXISTS (SELECT 1 FROM review r
+                                        WHERE r.user_id = o.user_id
+                                          AND r.product_id = o2.product_id)) AS unreviewed
              FROM shop_order o
              LEFT JOIN order_line ol ON ol.order_id = o.order_id
              WHERE o.user_id = %s"""
@@ -101,7 +106,7 @@ def search_orders_user(filters, user_id):
     if f.get("status"):
         sql += " AND o.status = %s"
         params.append(f["status"])
-    sql += " GROUP BY o.order_id, o.created_at, o.status ORDER BY o.order_id DESC"
+    sql += " GROUP BY o.order_id, o.user_id, o.created_at, o.status ORDER BY o.order_id DESC"
     return run_query(sql, params)
 
 
@@ -465,16 +470,7 @@ def create_product(data):
         (data["name"], data.get("detail") or "", data.get("category") or "",
          data.get("price", 0), blank_to_none(data.get("discount")))
     )
-    pid = out["new_id"]
-    try:
-        n = int(data.get("stock") or 0)
-    except (TypeError, ValueError):
-        n = 0
-    for i in range(1, max(n, 0) + 1):
-        run_command(
-            "INSERT INTO product_detail (product_id, username, password) VALUES (%s, %s, %s)",
-            (pid, f"acc_{pid}_{i:02d}", f"pass_{pid}_{i:02d}")
-        )
+    
     return out
 
 
@@ -485,10 +481,10 @@ def update_product(product_id, data):
     return run_command(
        """  
         update	product
-        set 	name = %s
+        set 	name = %s,detail = %s , category = %s , price = %s , discount = %s
         where 	product_id = %s
         """,
-        (data["name"] , product_id)
+        (data["name"] , data["detail"] , data["category"] , data["price"] , data["discount"]  , product_id)
    )
 
 
@@ -726,12 +722,13 @@ def delete_code(code_id):
 # ---------- รีวิว (review) — หน้า /home แท็บออเดอร์ หลังจ่ายเงิน ----------
 def get_my_reviews(user_id, order_id):
     """รีวิวของฉันสำหรับสินค้าในออเดอร์นี้ — คืน list ของ {product_id, rating, comment}
-    (ใช้เติมค่าเดิมในฟอร์มรีวิวถ้าเคยรีวิวไว้แล้ว)"""
-    # TODO: SELECT DISTINCT r.product_id, r.rating, r.comment
-    #       FROM review r
-    #       WHERE r.user_id = %s
-    #         AND r.product_id IN (SELECT product_id FROM order_line WHERE order_id = %s)
-    _todo("get_my_reviews")
+    (ใช้เติมค่าเดิมในฟอร์มรีวิว + ตัดแถวที่รีวิวแล้วออกจากโมดัล)"""
+    return run_query(
+        """SELECT DISTINCT r.product_id, r.rating, r.comment
+           FROM review r
+           WHERE r.user_id = %s
+             AND r.product_id IN (SELECT product_id FROM order_line WHERE order_id = %s)""",
+        (int(user_id), int(order_id)))
 
 
 def save_reviews(user_id, order_id, items):
