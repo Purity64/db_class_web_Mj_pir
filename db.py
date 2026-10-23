@@ -237,10 +237,19 @@ def get_cart(user_id):
 
 
 
-
-
 def remove_cart_item(user_id, product_id):
-    _todo("remove_cart_item")
+    return run_command(
+        """
+        DELETE ol
+        FROM order_line AS ol
+        JOIN shop_order AS so ON ol.order_id = so.order_id
+        WHERE so.user_id = %s
+          AND so.status = 'cart'
+          AND ol.product_id = %s
+        """,
+        (user_id, product_id)
+    )
+    
 
 
 def check_order_code(user_id, order_id, code_name):
@@ -745,13 +754,18 @@ def delete_code(code_id):
 # ---------- รีวิว (review) — หน้า /home แท็บออเดอร์ หลังจ่ายเงิน ----------
 def get_my_reviews(user_id, order_id):
     """รีวิวของฉันสำหรับสินค้าในออเดอร์นี้ — คืน list ของ {product_id, rating, comment}
-    (ใช้เติมค่าเดิมในฟอร์มรีวิว + ตัดแถวที่รีวิวแล้วออกจากโมดัล)"""
-    return run_query(
-        """SELECT DISTINCT r.product_id, r.rating, r.comment
-           FROM review r
-           WHERE r.user_id = %s
-             AND r.product_id IN (SELECT product_id FROM order_line WHERE order_id = %s)""",
-        (int(user_id), int(order_id)))
+    (ใช้เติมค่าเดิมในฟอร์มรีวิวถ้าเคยรีวิวไว้แล้ว)"""
+    # TODO: SELECT DISTINCT r.product_id, r.rating, r.comment
+    #       FROM review r
+    #       WHERE r.user_id = %s
+    #         AND r.product_id IN (SELECT product_id FROM order_line WHERE order_id = %s)
+    sql = """
+            select 	DISTINCT r.product_id, r.rating, r.comment
+            from 	review r 
+            where 	r.user_id = %s
+            AND r.product_id IN (SELECT product_id FROM order_line WHERE order_id = %s)
+        """
+    return run_query(sql, [user_id],[order_id])
 
 
 def save_reviews(user_id, order_id, items):
@@ -790,7 +804,15 @@ def get_product_reviews(product_id):
     #       LEFT JOIN users u ON u.user_id = r.user_id
     #       WHERE r.product_id = %s
     #       ORDER BY r.create_at DESC
-    _todo("get_product_reviews")
+    sql = """
+            SELECT r.user_id, u.name, r.rating, r.comment, r.create_at
+            FROM review r       
+            LEFT JOIN users u ON u.user_id = r.user_id
+            WHERE r.product_id = %s
+            ORDER BY r.create_at DESC
+        """
+    return run_query(sql, [product_id])
+
 
 
 
