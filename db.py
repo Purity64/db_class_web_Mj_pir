@@ -43,17 +43,17 @@ def _todo(name):
 
 # ---------- สินค้า (product) ----------
 # stock = จำนวน product_detail ที่ยังไม่ถูกผูกกับ order_line
-# TODO: เพิ่ม p.detail ใน SELECT ให้ครบทุกคอลัมน์ของตาราง product
-#       (ฟอร์มแก้ไขใน /admin จะอ่านค่าเดิมได้)
+# open_product: open=ขายได้ / close=ปิดขาย(ลูกค้าเห็นแต่ซื้อไม่ได้) / none=ซ่อนจากลูกค้า (NULL = open)
 _STOCK_SQL = ("(SELECT COUNT(*) FROM product_detail pd "
               "WHERE pd.product_id = p.product_id AND pd.`use` = FALSE   and(pd.order_line_id IS NULL or pd.book_end_at <= NOW()))")
 
-_PRODUCT_SELECT = ("SELECT p.product_id, p.name, p.category, p.price, p.discount, "
+_PRODUCT_SELECT = ("SELECT p.product_id, p.name, p.detail, p.category, p.price, p.discount, "
+                   "p.open_product, "
                    + _STOCK_SQL + " AS stock FROM product p")
 
 
 def search_products(filters):
-    """ค้นหา สินค้า ตามเงื่อนไข (name, category)"""
+    """ค้นหา สินค้า ตามเงื่อนไข (name, category, hide_none)"""
     f = filters or {}
     sql = _PRODUCT_SELECT + " WHERE 1=1"
     params = []
@@ -63,6 +63,9 @@ def search_products(filters):
     if f.get("category"):
         sql += " AND p.category = %s"
         params.append(f["category"])
+    if f.get("hide_none"):
+        # ฝั่งลูกค้า (/home) ไม่ต้องเห็นสินค้าสถานะ none — admin ไม่ส่งพารามิเตอร์นี้
+        sql += " AND IFNULL(p.open_product, 'open') <> 'none'"
     sql += "  ORDER BY p.product_id"
     return run_query(sql, params)
 
@@ -92,7 +95,12 @@ def search_orders_user(filters, user_id):
                     COUNT(ol.order_line_id) AS items,
                     IFNULL(SUM(ol.quantity * ol.unit_price), 0) AS total,
                     (SELECT IFNULL(SUM(p.amount_pay), 0) FROM payment p
-                      WHERE p.order_id = o.order_id) AS paid
+                      WHERE p.order_id = o.order_id) AS paid,
+                    (SELECT COUNT(*) FROM order_line o2
+                      WHERE o2.order_id = o.order_id
+                        AND NOT EXISTS (SELECT 1 FROM review r
+                                        WHERE r.user_id = o.user_id
+                                          AND r.product_id = o2.product_id)) AS unreviewed
              FROM shop_order o
              LEFT JOIN order_line ol ON ol.order_id = o.order_id
              WHERE o.user_id = %s"""
@@ -101,7 +109,7 @@ def search_orders_user(filters, user_id):
     if f.get("status"):
         sql += " AND o.status = %s"
         params.append(f["status"])
-    sql += " GROUP BY o.order_id, o.created_at, o.status ORDER BY o.order_id DESC"
+    sql += " GROUP BY o.order_id, o.user_id, o.created_at, o.status ORDER BY o.order_id DESC"
     return run_query(sql, params)
 
 
@@ -177,6 +185,16 @@ def add_to_Order(data, user_id):
     qty = int(d.get("qty", 1))
     print(pid)
     print(qty)
+
+    # บล็อกสินค้าที่ไม่ใช่ open — close = ปิดขาย, none = ซ่อน (กันยิง API ตรง)
+    p = run_query(
+        "SELECT name, IFNULL(open_product, 'open') AS op FROM product WHERE product_id = %s",
+        (pid,))
+    if not p:
+        raise ValueError("ไม่พบสินค้า")
+    if p[0]["op"] != "open":
+        raise ValueError('สินค้า "' + p[0]["name"] + '" ปิดการขายแล้ว')
+
     order_id = Check_myorder(user_id)
 
     
@@ -298,6 +316,18 @@ def confirm_cart(order_id):
     rows = run_query(sql, [order_id])
 
     print(rows)
+
+    # เช็ค open_product ก่อนจอง — สินค้าที่ถูกปิดหลังใส่ตะกร้า → บล็อกพร้อมบอกชื่อ
+    closed = run_query(
+        """SELECT DISTINCT p.name FROM order_line ol
+           JOIN product p ON p.product_id = ol.product_id
+           WHERE ol.order_id = %s
+             AND IFNULL(p.open_product, 'open') <> 'open'""",
+        (order_id,))
+    if closed:
+        names = ", ".join('"' + c["name"] + '"' for c in closed)
+        raise ValueError("สินค้าถูกปิดการขายแล้ว: " + names + " — ลบออกจากตะกร้าก่อนยืนยัน")
+
     for x in rows:
         order_line_id = x['order_line_id']  
         product_id = x['product_id']
@@ -318,7 +348,7 @@ def confirm_cart(order_id):
         """
         run_command(update_sql, [product_id, order_line_id, quantity])
       
-    return run_command("UPDATE shop_order SET status = 'waitpay' WHERE order_id    = %s AND  status = 'cart' ", [order_id,])
+    return run_command("UPDATE shop_order SET status = 'waitpay' , end_at = NOW() + INTERVAL 5 MINUTE WHERE order_id    = %s AND  status = 'cart' ", [order_id,])
 
 
 
@@ -464,40 +494,29 @@ def delete_customer(cust_id):
 
 
 def create_product(data):
-    """เพิ่ม สินค้า ใหม่ — data: name, detail, category, price, stock (form app.js)
-    + discount ถ้าส่งมา
+    """เพิ่ม สินค้า ใหม่ — data: name, detail, category, price, discount, open_product (form app.js)
     stock = จำนวน product_detail (บัญชีสินค้า) ที่สร้างให้ทันที"""
-    # TODO: INSERT INTO product (name, detail, category, price, discount) VALUES (...)
     out = run_command(
-        """INSERT INTO product (name, detail, category, price, discount)
-           VALUES (%s, %s, %s, %s, %s)""",
+        """INSERT INTO product (name, detail, category, price, discount, open_product)
+           VALUES (%s, %s, %s, %s, %s, %s)""",
         (data["name"], data.get("detail") or "", data.get("category") or "",
-         data.get("price", 0), blank_to_none(data.get("discount")))
+         data.get("price") or 0, blank_to_none(data.get("discount")),
+         data.get("open_product") or "open")
     )
-    pid = out["new_id"]
-    try:
-        n = int(data.get("stock") or 0)
-    except (TypeError, ValueError):
-        n = 0
-    for i in range(1, max(n, 0) + 1):
-        run_command(
-            "INSERT INTO product_detail (product_id, username, password) VALUES (%s, %s, %s)",
-            (pid, f"acc_{pid}_{i:02d}", f"pass_{pid}_{i:02d}")
-        )
+    
     return out
 
 
 def update_product(product_id, data):
-    """แก้ไข สินค้า ตาม product_id"""
-    # TODO: ขยายให้ UPDATE name, detail, category, price, discount
-    #       WHERE product_id = %s   (ตอนนี้แก้ได้แค่ name)
+    """แก้ไข สินค้า ตาม product_id — name, detail, category, price, discount, open_product"""
     return run_command(
-       """  
-        update	product
-        set 	name = %s
-        where 	product_id = %s
-        """,
-        (data["name"] , product_id)
+        """UPDATE product
+           SET name = %s, detail = %s, category = %s, price = %s,
+               discount = %s, open_product = %s
+           WHERE product_id = %s""",
+        (data["name"], data.get("detail") or "", data.get("category") or "",
+         data.get("price") or 0, blank_to_none(data.get("discount")),
+         data.get("open_product") or "open", product_id)
    )
 
 

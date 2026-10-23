@@ -10,6 +10,7 @@ const ENTITIES = {
     "label": "สินค้า",
     "api": "/api/products",
     "idKey": "product_id",
+    "hideNone": true,   // ไม่เอาสินค้าสถานะ none จาก server (open_product)
     "search": [
       {
         "key": "name",
@@ -107,6 +108,7 @@ async function doSearch() {
   const cfg = ENTITIES[current];
   const params = new URLSearchParams();
   cfg.search.forEach(f => { const v = $("#s_" + f.key).value; if (v) params.append(f.key, v); });
+  if (cfg.hideNone) params.append("hide_none", 1);   // open_product — กรอง none ฝั่ง server
   setStatus($("#status"), "กำลังค้นหา...");
   renderTable(await api(cfg.api + "?" + params.toString()));
 }
@@ -124,14 +126,19 @@ function renderTable(r) {
   const PRODUCT_COLS = ["product_id", "name", "category", "price", "discount", "stock"];
   let cols = Object.keys(rows[0]);
   if (cfg.idKey === "product_id") cols = cols.filter(c => PRODUCT_COLS.includes(c));
+  if (cfg.idKey === "order_id") cols = cols.filter(c => c !== "unreviewed");
   if (cfg.idKey === "product_id") {
     head.innerHTML = cols.map(c => "<th>" + c + "</th>").join("") + "<th>สั่งซื้อ</th>";
     body.innerHTML = rows.map(row => {
       const id = row[cfg.idKey];
       prodNames[id] = row.name;
+      const op = row.open_product ?? "open";
+      if (op === "none") return "";   // belt — server กรองแล้ว เผื่อหลุดมาก็ไม่แสดง
+      const buy = op === "open"
+        ? '<button class="btn sm add" onclick="addToCart(' + id + ", " + (row.stock ?? 0) + ')">🛒 ใส่ตะกร้า</button>'
+        : '<span style="color:#b45309;white-space:nowrap" title="ปิดการขายชั่วคราว">🔒 ปิดการขาย</span>';
       return "<tr>" + cols.map(c => "<td>" + (row[c] ?? "—") + "</td>").join("") +
-        '<td><button class="btn sm add" onclick="addToCart(' + id + ", " + (row.stock ?? 0) + ')">🛒 ใส่ตะกร้า</button> ' +
-        '<button class="btn sm" onclick="openProductReviews(' + id + ')">⭐ รีวิว</button></td></tr>';
+        "<td>" + buy + ' <button class="btn sm" onclick="openProductReviews(' + id + ')">⭐ รีวิว</button></td></tr>';
     }).join("");
   } else {
     const isOrders = cfg.idKey === "order_id";
@@ -143,7 +150,7 @@ function renderTable(r) {
       if (!isOrders || row.status === "success") {
         actions = '<button class="btn sm" onclick="showOrderDetail(' + id + ')">ดูรายละเอียด</button>';
       }
-      if (isOrders && row.status === "success") {
+      if (isOrders && row.status === "success" && Number(row.unreviewed ?? 1) > 0) {
         actions += ' <button class="btn sm add" onclick="openReview(' + id + ')">⭐ รีวิว</button>';
       }
       if (isOrders && row.status === "waitpay") {
@@ -229,8 +236,11 @@ async function openReview(orderId) {
   const rv = await api("/api/reviews?order_id=" + orderId);
   const mine = {};
   if (rv.ok) (rv.data || []).forEach(r => mine[r.product_id] = r);
+  // ตัดสินค้าที่ฉันรีวิวแล้วออก — เหลือเฉพาะที่ยังไม่รีวิว
+  const left = [...byP.entries()].filter(([pid]) => !mine[pid]);
+  if (left.length === 0) { setStatus(st, "รีวิวครบทุกสินค้าในออเดอร์นี้แล้ว ⭐"); return; }
   setStatus(st, "");
-  $("#rvBody").innerHTML = [...byP.entries()].map(([pid, name]) => {
+  $("#rvBody").innerHTML = left.map(([pid, name]) => {
     const m = mine[pid] || {};
     const rate = Number(m.rating) || 5;
     const opts = [1, 2, 3, 4, 5].map(n =>
@@ -256,6 +266,7 @@ async function saveReview() {
   if (!r.ok) { alert((r.todo ? "🚧 " : "⚠️ ") + r.error); return; }
   $("#reviewModal").classList.add("hidden");
   alert("บันทึกรีวิวแล้ว ⭐");
+  if (current === "orders") doSearch();  // รีเฟรชให้ปุ่มรีวิวของสินค้าที่ครบหายไปทันที
 }
 on("#btnReviewSave", saveReview);
 on("#btnReviewClose", () => $("#reviewModal").classList.add("hidden"));
