@@ -737,13 +737,7 @@ def get_my_reviews(user_id, order_id):
 def save_reviews(user_id, order_id, items):
     """บันทึกรีวิวทั้งชุดของออเดอร์ — items = [{product_id, rating, comment}, ...]
     1 คน ต่อ 1 สินค้า = 1 รีวิว (มีเดิม → UPDATE, ไม่มี → INSERT)"""
-    # TODO: 1) เช็คออเดอร์เป็นของ user_id และ status = 'success'
-    #          (ไม่ใช่ → raise ValueError("ออเดอร์นี้ยังรีวิวไม่ได้"))
-    #       2) วน items: rating ต้อง 1-5 (นอกนั้น raise ValueError)
-    #          มีเดิม (user_id + product_id) → UPDATE rating/comment
-    #          ไม่มี → INSERT (create_at เป็นค่า default)
-    #       ⚠️ ยังไม่มี composite PK (user_id, product_id) → ห้ามใช้ ON DUPLICATE KEY
-    _todo("save_reviews")
+    return run_command("INSERT INTO `review`( `user_id`, `product_id`, `rating`, `comment`, `create_at`) VALUES (%s , %s , %s,%s,NOW()) ", [user_id, items['product_id'] , items['rating'] , items['comment']])
 
 
 
@@ -772,13 +766,12 @@ def report_summary():
              WHERE create_at >= DATE_FORMAT(CURRENT_DATE(), '%Y-%m-01')
                AND create_at < DATE_FORMAT(CURRENT_DATE() + INTERVAL 1 MONTH, '%Y-%m-01')) AS payment_month,
 
-               mon
-
             (SELECT avg(rating)
              FROM review) AS  avg_review
 
         """
     )
+    print(rows)
     return rows[0]
 def report_best_selling():
     """📈 สินค้าขายดี (Best Sellers)

@@ -115,49 +115,21 @@ const ENTITIES = {
     "label": "ออเดอร์",
     "api": "/api/orders",
     "idKey": "order_id",
+    "columns": ["order_id", "order_date", "status", "items", "total", "paid"],
     "search": [
-      {
-        "key": "cust_id",
-        "label": "รหัสลูกค้า",
-        "type": "number"
-      },
       {
         "key": "status",
         "label": "สถานะ",
         "type": "select",
         "options": [
-          "",
-          "pending",
-          "shipped"
+          { "value": "", "label": "ทั้งหมด" },
+          { "value": "waitpay", "label": "รอชำระเงิน" },
+          { "value": "success", "label": "สำเร็จ" },
+          { "value": "cancel", "label": "ยกเลิก" }
         ]
       }
     ],
-    "form": [
-      {
-        "key": "cust_id",
-        "label": "ลูกค้า",
-        "type": "select",
-        "optionsFrom": {
-          "api": "/api/customers",
-          "value": "cust_id",
-          "label": "name"
-        }
-      },
-      {
-        "key": "order_date",
-        "label": "วันที่สั่ง",
-        "type": "date"
-      },
-      {
-        "key": "status",
-        "label": "สถานะ",
-        "type": "select",
-        "options": [
-          "pending",
-          "shipped"
-        ]
-      }
-    ]
+    "form": []
   },
   "code": {
     "label": "โค้ดส่วนลด",
@@ -279,6 +251,8 @@ async function buildSearch() {
   if (cfg !== ENTITIES[current]) return;   // ผู้ใช้เปลี่ยนแท็บระหว่างรอ
   $("#searchTitle").textContent = cfg.label;
   $("#searchFields").innerHTML = cfg.search.map(f => fieldHtml(f, "s_")).join("");
+  // ซ่อนปุ่มเพิ่มเมื่อ entity ไม่มีฟอร์ม (เช่น ออเดอร์ — ดูอย่างเดียว)
+  if ($("#btnAdd")) $("#btnAdd").style.display = (cfg.form && cfg.form.length) ? "" : "none";
 }
 async function doSearch() {
   const cfg = ENTITIES[current];
@@ -300,10 +274,16 @@ function renderTable(r) {
   head.innerHTML = cols.map(c => "<th>" + c + "</th>").join("") + "<th>จัดการ</th>";
   body.innerHTML = rows.map(row => {
     const id = row[cfg.idKey];
-    let actions = '<button class="btn sm" onclick="editRow(' + id + ')">แก้ไข</button> ' +
-      '<button class="btn sm del" onclick="deleteRow(' + id + ')">ลบ</button>';
-    if (cfg.idKey === "product_id" && document.getElementById("stockModal")) {
-      actions += ' <button class="btn sm" onclick="openStockModal(' + id + ')">📦 สต็อก</button>';
+    let actions;
+    if (cfg.idKey === "order_id") {
+      // ออเดอร์: ดูอย่างเดียว (ไม่มี route แก้ไข/ลบ)
+      actions = '<button class="btn sm" onclick="openOrderDetail(' + id + ')">👁 ดูรายการ</button>';
+    } else {
+      actions = '<button class="btn sm" onclick="editRow(' + id + ')">แก้ไข</button> ' +
+        '<button class="btn sm del" onclick="deleteRow(' + id + ')">ลบ</button>';
+      if (cfg.idKey === "product_id" && document.getElementById("stockModal")) {
+        actions += ' <button class="btn sm" onclick="openStockModal(' + id + ')">📦 สต็อก</button>';
+      }
     }
     return "<tr>" + cols.map(c => "<td>" + (row[c] ?? "—") + "</td>").join("") +
       "<td>" + actions + "</td></tr>";
@@ -347,6 +327,26 @@ on("#btnClear", () => buildSearch());
 on("#btnAdd", () => { editingId = null; openForm("เพิ่มข้อมูลใหม่"); });
 on("#btnSave", save);
 on("#btnCancel", () => $("#modal").classList.add("hidden"));
+
+// ===== ดูรายการสินค้าในออเดอร์ (/admin) =====
+async function openOrderDetail(orderId) {
+  const st = $("#odStatus"), body = $("#odBody");
+  if (!st || !body) return;
+  $("#odTitle").textContent = "ออเดอร์ #" + orderId;
+  body.innerHTML = "";
+  $("#orderDetailModal").classList.remove("hidden");
+  setStatus(st, "กำลังโหลด...");
+  const r = await api("/api/orders/" + orderId);
+  if (!r.ok) { setStatus(st, (r.todo ? "🚧 " : "⚠️ ") + r.error, r.todo ? "todo" : "err"); return; }
+  const items = r.data || [];
+  if (!items.length) { setStatus(st, "ไม่มีรายการ"); return; }
+  setStatus(st, "");
+  body.innerHTML = items.map(it =>
+    "<tr><td>" + (it.name ?? "—") + "</td><td>" + (it.quantity ?? "—") + "</td><td>" +
+    (it.unit_price ?? "—") + "</td><td>" + (it.line_total ?? "—") + "</td><td>" +
+    (it.username || "—") + "</td><td>" + (it.password || "—") + "</td></tr>").join("");
+}
+on("#btnOdClose", () => $("#orderDetailModal").classList.add("hidden"));
 buildSearch();
 setStatus($("#status"), 'กด "ค้นหา" เพื่อแสดงข้อมูล');
 

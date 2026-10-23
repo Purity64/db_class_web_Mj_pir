@@ -75,6 +75,24 @@
       </div>
     </div>
   </div>
+  <div id="orderDetailModal" class="modal hidden">
+    <div class="modal-box" style="max-width:760px">
+      <h3 id="odTitle">ออเดอร์</h3>
+      <div id="odStatus" class="status"></div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr><th>สินค้า</th><th>จำนวน</th><th>ราคา/หน่วย</th><th>รวม</th>
+                <th>บัญชี (username)</th><th>รหัสผ่าน</th></tr>
+          </thead>
+          <tbody id="odBody"></tbody>
+        </table>
+      </div>
+      <div class="btn-row" style="justify-content:flex-end; margin-top:12px">
+        <button class="btn" id="btnOdClose">ปิด</button>
+      </div>
+    </div>
+  </div>
   <script src="{{ url_for('static', filename='app.js') }}"></script>
 </body>
 </html>
