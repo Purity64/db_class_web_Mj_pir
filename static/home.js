@@ -10,6 +10,7 @@ const ENTITIES = {
     "label": "สินค้า",
     "api": "/api/products",
     "idKey": "product_id",
+    "hideNone": true,   // ไม่เอาสินค้าสถานะ none จาก server (open_product)
     "search": [
       {
         "key": "name",
@@ -107,6 +108,7 @@ async function doSearch() {
   const cfg = ENTITIES[current];
   const params = new URLSearchParams();
   cfg.search.forEach(f => { const v = $("#s_" + f.key).value; if (v) params.append(f.key, v); });
+  if (cfg.hideNone) params.append("hide_none", 1);   // open_product — กรอง none ฝั่ง server
   setStatus($("#status"), "กำลังค้นหา...");
   renderTable(await api(cfg.api + "?" + params.toString()));
 }
@@ -130,9 +132,13 @@ function renderTable(r) {
     body.innerHTML = rows.map(row => {
       const id = row[cfg.idKey];
       prodNames[id] = row.name;
+      const op = row.open_product ?? "open";
+      if (op === "none") return "";   // belt — server กรองแล้ว เผื่อหลุดมาก็ไม่แสดง
+      const buy = op === "open"
+        ? '<button class="btn sm add" onclick="addToCart(' + id + ", " + (row.stock ?? 0) + ')">🛒 ใส่ตะกร้า</button>'
+        : '<span style="color:#b45309;white-space:nowrap" title="ปิดการขายชั่วคราว">🔒 ปิดการขาย</span>';
       return "<tr>" + cols.map(c => "<td>" + (row[c] ?? "—") + "</td>").join("") +
-        '<td><button class="btn sm add" onclick="addToCart(' + id + ", " + (row.stock ?? 0) + ')">🛒 ใส่ตะกร้า</button> ' +
-        '<button class="btn sm" onclick="openProductReviews(' + id + ')">⭐ รีวิว</button></td></tr>';
+        "<td>" + buy + ' <button class="btn sm" onclick="openProductReviews(' + id + ')">⭐ รีวิว</button></td></tr>';
     }).join("");
   } else {
     const isOrders = cfg.idKey === "order_id";

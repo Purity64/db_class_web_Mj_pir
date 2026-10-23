@@ -63,7 +63,7 @@ const ENTITIES = {
     "label": "สินค้า",
     "api": "/api/products",
     "idKey": "product_id",
-    "columns": ["product_id", "name", "detail", "category", "price", "discount", "stock"],
+    "columns": ["product_id", "name", "detail", "category", "price", "discount", "open_product", "stock"],
     "search": [
       {
         "key": "name",
@@ -102,6 +102,16 @@ const ENTITIES = {
         "key": "discount",
         "label": "ส่วนลด",
         "type": "number"
+      },
+      {
+        "key": "open_product",
+        "label": "สถานะขาย",
+        "type": "select",
+        "options": [
+          { "value": "open", "label": "เปิดขาย" },
+          { "value": "close", "label": "ปิดขาย (ลูกค้าเห็นแต่ซื้อไม่ได้)" },
+          { "value": "none", "label": "ซ่อนจากลูกค้า" }
+        ]
       }
     ]
   },
