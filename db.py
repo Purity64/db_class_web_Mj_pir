@@ -6,7 +6,7 @@ import mysql.connector
 import config
 from datetime import date
 
-
+1234
 def get_connection():
     return mysql.connector.connect(
         host=config.DB_HOST, user=config.DB_USER, password=config.DB_PASSWORD,
