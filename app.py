@@ -125,6 +125,11 @@ def product_update(_id):
 def product_delete(_id):
     return safe(db.delete_product, _id)
 
+# ---- รีวิวของสินค้า (สาธารณะ) — ปุ่ม "ดูรีวิว" ที่ตารางสินค้า ----
+@app.route("/api/products/<int:_id>/reviews", methods=["GET"])
+def product_reviews(_id):
+    return safe(db.get_product_reviews, _id)
+
 # ---- สต็อก (product_detail) ของสินค้า — /admin จัดการ ----
 @app.route("/api/products/<int:_id>/stock", methods=["GET"])
 def product_stock_list(_id):

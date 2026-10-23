@@ -110,6 +110,8 @@ async function doSearch() {
   setStatus($("#status"), "กำลังค้นหา...");
   renderTable(await api(cfg.api + "?" + params.toString()));
 }
+// ชื่อสินค้า cache ไว้ตั้งหัวโมดูลรีวิว (ปุ่ม "⭐ รีวิว" ส่งแค่ product_id)
+const prodNames = {};
 function renderTable(r) {
   const cfg = ENTITIES[current];
   const head = $("#tableHead"), body = $("#tableBody"), st = $("#status");
@@ -126,8 +128,10 @@ function renderTable(r) {
     head.innerHTML = cols.map(c => "<th>" + c + "</th>").join("") + "<th>สั่งซื้อ</th>";
     body.innerHTML = rows.map(row => {
       const id = row[cfg.idKey];
+      prodNames[id] = row.name;
       return "<tr>" + cols.map(c => "<td>" + (row[c] ?? "—") + "</td>").join("") +
-        '<td><button class="btn sm add" onclick="addToCart(' + id + ", " + (row.stock ?? 0) + ')">🛒 ใส่ตะกร้า</button></td></tr>';
+        '<td><button class="btn sm add" onclick="addToCart(' + id + ", " + (row.stock ?? 0) + ')">🛒 ใส่ตะกร้า</button> ' +
+        '<button class="btn sm" onclick="openProductReviews(' + id + ')">⭐ รีวิว</button></td></tr>';
     }).join("");
   } else {
     const isOrders = cfg.idKey === "order_id";
@@ -255,6 +259,31 @@ async function saveReview() {
 }
 on("#btnReviewSave", saveReview);
 on("#btnReviewClose", () => $("#reviewModal").classList.add("hidden"));
+
+// ===== ดูรีวิวของสินค้า (ตารางสินค้า ทั้ง user เห็น) =====
+async function openProductReviews(pid) {
+  const st = $("#rlStatus"), body = $("#rlBody");
+  if (!st || !body) return;
+  $("#rlTitle").textContent = "⭐ รีวิว — " + (prodNames[pid] ?? "สินค้า #" + pid);
+  $("#rlSummary").textContent = "";
+  body.innerHTML = "";
+  $("#reviewListModal").classList.remove("hidden");
+  setStatus(st, "กำลังโหลด...");
+  const r = await api("/api/products/" + pid + "/reviews");
+  if (!r.ok) { setStatus(st, (r.todo ? "🚧 " : "⚠️ ") + r.error, r.todo ? "todo" : "err"); return; }
+  const items = r.data || [];
+  if (!items.length) { setStatus(st, "ยังไม่มีรีวิว"); return; }
+  const avg = items.reduce((s, x) => s + Number(x.rating || 0), 0) / items.length;
+  const full = Math.round(avg);
+  setStatus(st, "");
+  $("#rlSummary").textContent = "★".repeat(full) + "☆".repeat(5 - full) +
+    " เฉลี่ย " + avg.toFixed(1) + " (" + items.length + " รีวิว)";
+  body.innerHTML = items.map(x =>
+    "<tr><td>" + rvEsc(x.name || ("user" + x.user_id)) + "</td><td>" +
+    (x.rating ?? "—") + ' ★</td><td>' + rvEsc(x.comment) + "</td><td>" +
+    rvEsc(x.create_at ?? "—") + "</td></tr>").join("");
+}
+on("#btnReviewListClose", () => $("#reviewListModal").classList.add("hidden"));
 (async () => {
   await buildSearch();
   if (document.querySelector(".tab.active")) doSearch();

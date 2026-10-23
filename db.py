@@ -6,7 +6,7 @@ import mysql.connector
 import config
 from datetime import date
 
-1234
+
 def get_connection():
     return mysql.connector.connect(
         host=config.DB_HOST, user=config.DB_USER, password=config.DB_PASSWORD,
@@ -334,7 +334,7 @@ def pay_order(user_id, order_id, code_name=None):
         "FROM order_line WHERE order_id = %s",
         (order_id,))
     total = float(total_rows[0]["total"])
-    if total <= 0:
+    if total < 0:
         raise ValueError("ออเดอร์ไม่มียอดชำระ")
     amount = total
     code_id = None
@@ -737,7 +737,40 @@ def get_my_reviews(user_id, order_id):
 def save_reviews(user_id, order_id, items):
     """บันทึกรีวิวทั้งชุดของออเดอร์ — items = [{product_id, rating, comment}, ...]
     1 คน ต่อ 1 สินค้า = 1 รีวิว (มีเดิม → UPDATE, ไม่มี → INSERT)"""
-    return run_command("INSERT INTO `review`( `user_id`, `product_id`, `rating`, `comment`, `create_at`) VALUES (%s , %s , %s,%s,NOW()) ", [user_id, items['product_id'] , items['rating'] , items['comment']])
+    for it in items:
+        pid = int(it.get("product_id"))
+        rating = int(it.get("rating") or 0)
+        comment = (it.get("comment") or "").strip()
+        if rating < 1 or rating > 5:
+            raise ValueError("ดาวต้องอยู่ระหว่าง 1-5")
+
+        # 3) upsert — มีเดิมแล้ว (user_id + product_id) → UPDATE, ไม่มี → INSERT
+        #    (ยังไม่มี composite PK → ห้ามใช้ ON DUPLICATE KEY)
+        old = run_query(
+            "SELECT review_id FROM review WHERE user_id = %s AND product_id = %s",
+            (user_id, pid))
+        if old:
+            run_command(
+                "UPDATE review SET rating = %s, comment = %s "
+                "WHERE user_id = %s AND product_id = %s",
+                (rating, comment, user_id, pid))
+        else:
+            run_command(
+                "INSERT INTO review (user_id, product_id, rating, comment) "
+                "VALUES (%s, %s, %s, %s)",
+                (user_id, pid, rating, comment))
+    return {"saved": len(items)}
+
+
+def get_product_reviews(product_id):
+    """รีวิวทั้งหมดของสินค้า — คืน list ของ {user_id, name, rating, comment, create_at}
+    (หน้า /home และ /admin กด "ดูรีวิว" ที่ตารางสินค้า)"""
+    # TODO: SELECT r.user_id, u.name, r.rating, r.comment, r.create_at
+    #       FROM review r
+    #       LEFT JOIN users u ON u.user_id = r.user_id
+    #       WHERE r.product_id = %s
+    #       ORDER BY r.create_at DESC
+    _todo("get_product_reviews")
 
 
 

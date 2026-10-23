@@ -261,6 +261,8 @@ async function doSearch() {
   setStatus($("#status"), "กำลังค้นหา...");
   renderTable(await api(cfg.api + "?" + params.toString()));
 }
+// ชื่อสินค้า cache ไว้ตั้งหัวโมดูลรีวิว (ปุ่ม "⭐ รีวิว" ส่งแค่ product_id)
+const prodNames = {};
 function renderTable(r) {
   const head = $("#tableHead"), body = $("#tableBody"), st = $("#status");
   head.innerHTML = ""; body.innerHTML = "";
@@ -281,8 +283,14 @@ function renderTable(r) {
     } else {
       actions = '<button class="btn sm" onclick="editRow(' + id + ')">แก้ไข</button> ' +
         '<button class="btn sm del" onclick="deleteRow(' + id + ')">ลบ</button>';
-      if (cfg.idKey === "product_id" && document.getElementById("stockModal")) {
-        actions += ' <button class="btn sm" onclick="openStockModal(' + id + ')">📦 สต็อก</button>';
+      if (cfg.idKey === "product_id") {
+        prodNames[id] = row.name;
+        if (document.getElementById("stockModal")) {
+          actions += ' <button class="btn sm" onclick="openStockModal(' + id + ')">📦 สต็อก</button>';
+        }
+        if (document.getElementById("reviewListModal")) {
+          actions += ' <button class="btn sm" onclick="openProductReviews(' + id + ')">⭐ รีวิว</button>';
+        }
       }
     }
     return "<tr>" + cols.map(c => "<td>" + (row[c] ?? "—") + "</td>").join("") +
@@ -347,6 +355,33 @@ async function openOrderDetail(orderId) {
     (it.username || "—") + "</td><td>" + (it.password || "—") + "</td></tr>").join("");
 }
 on("#btnOdClose", () => $("#orderDetailModal").classList.add("hidden"));
+
+// ===== ดูรีวิวของสินค้า (ตารางสินค้า /admin) =====
+const rvEsc = s => String(s ?? "").replace(/[&<>"']/g,
+  c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+async function openProductReviews(pid) {
+  const st = $("#rlStatus"), body = $("#rlBody");
+  if (!st || !body) return;
+  $("#rlTitle").textContent = "⭐ รีวิว — " + (prodNames[pid] ?? "สินค้า #" + pid);
+  $("#rlSummary").textContent = "";
+  body.innerHTML = "";
+  $("#reviewListModal").classList.remove("hidden");
+  setStatus(st, "กำลังโหลด...");
+  const r = await api("/api/products/" + pid + "/reviews");
+  if (!r.ok) { setStatus(st, (r.todo ? "🚧 " : "⚠️ ") + r.error, r.todo ? "todo" : "err"); return; }
+  const items = r.data || [];
+  if (!items.length) { setStatus(st, "ยังไม่มีรีวิว"); return; }
+  const avg = items.reduce((s, x) => s + Number(x.rating || 0), 0) / items.length;
+  const full = Math.round(avg);
+  setStatus(st, "");
+  $("#rlSummary").textContent = "★".repeat(full) + "☆".repeat(5 - full) +
+    " เฉลี่ย " + avg.toFixed(1) + " (" + items.length + " รีวิว)";
+  body.innerHTML = items.map(x =>
+    "<tr><td>" + rvEsc(x.name || ("user" + x.user_id)) + "</td><td>" +
+    (x.rating ?? "—") + ' ★</td><td>' + rvEsc(x.comment) + "</td><td>" +
+    rvEsc(x.create_at ?? "—") + "</td></tr>").join("");
+}
+on("#btnReviewListClose", () => $("#reviewListModal").classList.add("hidden"));
 buildSearch();
 setStatus($("#status"), 'กด "ค้นหา" เพื่อแสดงข้อมูล');
 

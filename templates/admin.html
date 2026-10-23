@@ -93,6 +93,24 @@
       </div>
     </div>
   </div>
+  <div id="reviewListModal" class="modal hidden">
+    <div class="modal-box" style="max-width:720px">
+      <h3 id="rlTitle">⭐ รีวิวสินค้า</h3>
+      <div id="rlSummary" style="color:#666;font-size:14px;margin:6px 0 4px"></div>
+      <div id="rlStatus" class="status"></div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr><th>ผู้รีวิว</th><th>ดาว</th><th>ความคิดเห็น</th><th>วันที่</th></tr>
+          </thead>
+          <tbody id="rlBody"></tbody>
+        </table>
+      </div>
+      <div class="btn-row" style="justify-content:flex-end; margin-top:12px">
+        <button class="btn" id="btnReviewListClose">ปิด</button>
+      </div>
+    </div>
+  </div>
   <script src="{{ url_for('static', filename='app.js') }}"></script>
 </body>
 </html>
