@@ -801,11 +801,23 @@ def report_summary():
             (SELECT COUNT(*)
              FROM shop_order) AS orders,
 
+             (SELECT COALESCE(SUM(amount_pay), 0)
+            FROM payment
+            WHERE status = 'success'
+             AND create_at >= CURRENT_DATE()
+             AND create_at < CURRENT_DATE() + INTERVAL 1 DAY) AS payment_today,
+
             (SELECT COALESCE(SUM(amount_pay), 0)
              FROM payment
              WHERE status = 'success'
                AND create_at >= DATE_FORMAT(CURRENT_DATE(), '%Y-%m-01')
                AND create_at < DATE_FORMAT(CURRENT_DATE() + INTERVAL 1 MONTH, '%Y-%m-01')) AS payment_month,
+
+            (SELECT COALESCE(SUM(amount_pay), 0)
+            FROM payment
+            WHERE status = 'success'
+             AND create_at >= DATE_FORMAT(CURRENT_DATE(), '%Y-01-01')
+             AND create_at < DATE_FORMAT(CURRENT_DATE() + INTERVAL 1 YEAR, '%Y-01-01')) AS payment_year,
 
             (SELECT avg(rating)
              FROM review) AS  avg_review
