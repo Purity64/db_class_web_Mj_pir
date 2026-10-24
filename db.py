@@ -120,6 +120,28 @@ def search_orders_user(filters, user_id):
     return run_query(sql, params)
 
 
+def search_orders_all(filters):
+    """ออเดอร์ของลูกค้าทุกคน (สำหรับ admin — ไม่กรอง user_id)"""
+    f = filters or {}
+    sql = """SELECT o.order_id, o.created_at AS order_date,
+                    u.name AS customer, o.status,
+                    COUNT(ol.order_line_id) AS items,
+                    IFNULL(SUM(ol.quantity * ol.unit_price), 0) AS total,
+                    (SELECT IFNULL(SUM(p.amount_pay), 0) FROM payment p
+                      WHERE p.order_id = o.order_id AND p.status = 'success') AS paid
+             FROM shop_order o
+             JOIN users u ON u.user_id = o.user_id
+             LEFT JOIN order_line ol ON ol.order_id = o.order_id
+             WHERE o.status <> 'cart'"""
+    params = []
+    if f.get("status"):
+        sql += " AND o.status = %s"
+        params.append(f["status"])
+    sql += (" GROUP BY o.order_id, o.user_id, o.created_at, o.status, u.name"
+            " ORDER BY o.order_id DESC")
+    return run_query(sql, params)
+
+
 def get_order(order_id):
     order = run_query(
         """SELECT ol.order_line_id, ol.product_id, p.name,
@@ -222,7 +244,6 @@ def add_to_Order(data, user_id):
 
 
 def get_cart(user_id):
-    """อ่านตะกร้าจาก DB คืน {items, count, total} — ตรงกับ CART_COLS ใน home.js"""
     order_id = Check_myorder(user_id)
     if not order_id:
         return {"items": [], "count": 0, "total": 0}
@@ -290,7 +311,7 @@ def check_order_code(user_id, order_id, code_name):
     if c["used"] == 1:
         raise ValueError("โค้ดนี้ถูกใช้งานแล้ว")
 
-    # คำนวณส่วนลด
+
     if c["discount_method"] == "percent":
         final = round(total * (100 - float(c["discount"])) / 100, 2)
     else:
@@ -315,7 +336,6 @@ def confirm_cart(order_id):
 
     print(rows)
 
-    # เช็ค open_product ก่อนจอง — สินค้าที่ถูกปิดหลังใส่ตะกร้า → บล็อกพร้อมบอกชื่อ
     closed = run_query(
         """SELECT DISTINCT p.name FROM order_line ol
            JOIN product p ON p.product_id = ol.product_id
@@ -364,8 +384,7 @@ def pay_order(user_id, order_id, code_name=None, result="success"):
     if int(o[0]["user_id"]) != uid:
         raise ValueError("ไม่มีสิทธิ์ชำระเงินออเดอร์นี้")
     total = float(o[0]["total"])
-    if total <= 0:
-        raise ValueError("ออเดอร์ไม่มียอดชำระ")
+
 
     def log_failed():
         run_command(
@@ -437,10 +456,6 @@ def cancel_order(user_id, order_id):
 
 
 def search_customers(filters):
-    """ค้นหา ลูกค้า ตามเงื่อนไข (name, email, tier)
-    คำใบ้: เริ่มจาก sql = "SELECT * FROM customer WHERE 1=1"
-    แล้วต่อเงื่อนไขเฉพาะ filter ที่มีค่า (ข้อความใช้ LIKE %s, อื่น ๆ ใช้ = %s)"""
-    # TODO: เขียน SQL ค้นหาแบบยืดหยุ่นตาม filters (ใช้ %s เสมอ)
     sql = """
         SELECT  user_id
                 ,name
@@ -462,8 +477,6 @@ def search_customers(filters):
     return run_query(sql, params)
 
 def get_customer(user_id):
-    """ดึง ลูกค้า 1 รายการตาม cust_id (ใช้ตอนเปิดฟอร์มแก้ไข)"""
-    # TODO: SELECT * FROM customer WHERE cust_id = %s แล้วคืนแถวเดียว
     rows = run_query("""
                         SELECT user_id, name, email, role
                         FROM users
@@ -472,7 +485,6 @@ def get_customer(user_id):
     return rows[0] if rows else None
 
 def create_customer(data):
-    """เพิ่ม user ใหม่จาก /admin — data: name, email, role (+ password ถ้าไม่ส่งใช้ '1234')"""
     name = (data.get("name") or "").strip()
     email = (data.get("email") or "").strip()
     role = data.get("role") if data.get("role") in ("user", "admin") else "user"
@@ -488,7 +500,6 @@ def create_customer(data):
 
 
 def update_customer(cust_id, data):
-    """แก้ไข user ตาม user_id — data: name, email, role"""
     name = (data.get("name") or "").strip()
     email = (data.get("email") or "").strip()
     role = data.get("role") if data.get("role") in ("user", "admin") else "user"
@@ -509,7 +520,6 @@ def update_customer(cust_id, data):
 
 
 def delete_customer(cust_id):
-    """ลบ user และข้อมูลที่อ้างถึงผ่าน ON DELETE CASCADE"""
     return run_command("DELETE FROM users WHERE user_id = %s", (cust_id,))
 
 # ---------- สินค้า (product) ----------
@@ -517,8 +527,6 @@ def delete_customer(cust_id):
 
 
 def create_product(data):
-    """เพิ่ม สินค้า ใหม่ — data: name, detail, category, price, discount, open_product (form app.js)
-    stock = จำนวน product_detail (บัญชีสินค้า) ที่สร้างให้ทันที"""
     out = run_command(
         """INSERT INTO product (name, detail, category, price, discount, open_product)
            VALUES (%s, %s, %s, %s, %s, %s)""",
@@ -667,10 +675,7 @@ def create_code(data):
     )
 
 def update_code(code_id, data):
-    """แก้โค้ด — ฟิลด์เดียวกับ create_code"""
-    # TODO: UPDATE code SET code_name=%s, discount=%s, discount_method=%s,
-    #              max_uses=%s, status=%s, end_at=%s
-    #       WHERE code_id = %s   (code_name ซ้ำกับโค้ดอื่น → raise ValueError)
+
     code_name = (data.get("code_name") or "").strip()
     discount_raw = data.get("discount")
     discount_method = data.get("discount_method") if data.get("discount_method") in ("money", "percent") else "money"
@@ -689,21 +694,21 @@ def update_code(code_id, data):
     except (ValueError, TypeError):
             raise ValueError("กรอกตัวเลขให้ถูกต้อง")
     if run_query("SELECT 1 FROM code WHERE code_name = %s", (code_name,)):
-            raise ValueError("โค้ดชือนี้ถูกใช้ไปแล้ว")
+        return run_command(
+                """
+                UPDATE code
+                SET code_name = %s,
+                    discount = %s,
+                    discount_method = %s,
+                    max_uses = %s,
+                    status = %s,
+                    end_at = %s
+                WHERE code_id = %s
+                """,
+                (code_name, discount, discount_method, max_uses, status, end_at, code_id)
+        )
 
-    return run_command(
-        """
-        UPDATE code
-        SET code_name = %s,
-            discount = %s,
-            discount_method = %s,
-            max_uses = %s,
-            status = %s,
-            end_at = %s
-        WHERE code_id = %s
-        """,
-        (code_name, discount, discount_method, max_uses, status, end_at, code_id)
-   )
+
 
 
 

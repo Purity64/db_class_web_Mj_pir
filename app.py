@@ -35,7 +35,6 @@ def safe(fn, *args, **kwargs):
     except NotImplementedError as e:
         return jsonify({"ok": False, "todo": True, "error": str(e)}), 501
     except ValueError as e:
-        # ข้อผิดพลาดที่ db.py ตั้งใจแจ้งผู้ใช้ เช่น raise ValueError("คลาสนี้เต็มแล้ว")
         return jsonify({"ok": False, "error": str(e)}), 400
     except Exception as e:
         return jsonify({"ok": False, "error": f"{type(e).__name__}: {e}"}), 500
@@ -190,6 +189,12 @@ def _require_user():
     return uid, None
 
 
+def is_admin(uid):
+    # เช็ค role จาก DB ไม่ใช่ cookie (cookie ปลอมได้)
+    c = db.get_customer(uid)
+    return bool(c and c.get("role") == "admin")
+
+
 @app.route("/api/cart", methods=["GET"])
 def cart_get():
     uid, err = _require_user()
@@ -229,14 +234,18 @@ def orders_list():
     uid, err = _require_user()
     if err: return err
     filters = {k: v for k, v in request.args.items() if v}
+    if is_admin(uid):
+        return safe(db.search_orders_all, filters)
     return safe(db.search_orders_user, filters, uid)
 
 @app.route("/api/orders/<int:_id>", methods=["GET"])
 def order_get(_id):
-    # IDOR guard: ออเดอร์ต้องเป็นของตัวเอง (เช็คจากรายการออเดอร์ของ user นี้)
+    # IDOR guard: ผู้ใช้ทั่วไปดูได้เฉพาะออเดอร์ตัวเอง / admin ดูได้ทุกออเดอร์
     uid, err = _require_user()
     if err:
         return err
+    if is_admin(uid):
+        return safe(db.get_order, _id)
     try:
         mine = db.search_orders_user({}, uid)
     except NotImplementedError as e:
@@ -319,7 +328,6 @@ def report_list():
     """รายชื่อรายงานทั้งหมด (อ่านจาก db.REPORTS) ให้หน้าเว็บสร้างกล่องรายงาน"""
     data = [{"key": k, "title": t} for k, t, _ in db.REPORTS]
     
-    # print แสดงโครงสร้างข้อมูลจริงใน Console
     print({"ok": True, "data": data})
     
     return jsonify({"ok": True, "data": data})

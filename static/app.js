@@ -119,7 +119,7 @@ const ENTITIES = {
     "label": "ออเดอร์",
     "api": "/api/orders",
     "idKey": "order_id",
-    "columns": ["order_id", "order_date", "status", "items", "total", "paid"],
+    "columns": ["order_id", "order_date", "customer", "status", "items", "total", "paid"],
     "search": [
       {
         "key": "status",
@@ -189,7 +189,7 @@ const ENTITIES = {
       },
       {
         "key": "max_uses",
-        "label": "จำกัดการใช้ (0 = ไม่จำกัด)",
+        "label": "จำกัดการใช้",
         "type": "number"
       },
       {
@@ -203,7 +203,7 @@ const ENTITIES = {
       },
       {
         "key": "end_at",
-        "label": "หมดอายุ (ว่าง = ไม่หมดอายุ)",
+        "label": "หมดอายุ",
         "type": "datetime-local"
       }
     ]
