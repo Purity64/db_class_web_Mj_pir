@@ -246,6 +246,18 @@ def order_get(_id):
     return safe(db.get_order, _id)
 
 
+@app.route("/api/orders/<int:_id>/payments", methods=["GET"])
+def order_payments(_id):
+    # IDOR guard: ประวัติการชำระเงินดูได้เฉพาะเจ้าของออเดอร์
+    uid, err = _require_user()
+    if err:
+        return err
+    mine = db.search_orders_user({}, uid)
+    if not any(o.get("order_id") == _id for o in (mine or [])):
+        return jsonify({"ok": False, "error": "ไม่พบออเดอร์นี้ของคุณ"}), 403
+    return safe(db.get_order_payments, _id)
+
+
 # ---- รีวิว (review) หลังชำระเงิน ----
 @app.route("/api/reviews", methods=["GET"])
 def review_list():
@@ -275,7 +287,9 @@ def order_pay(_id):
     if err:
         return err
     d = request.get_json(silent=True) or {}
-    return safe(db.pay_order, uid, _id, (d.get("code_name") or "").strip() or None)
+    result = d.get("result") if d.get("result") in ("success", "failed") else "success"
+    return safe(db.pay_order, uid, _id,
+                (d.get("code_name") or "").strip() or None, result)
 
 
 @app.route("/api/orders/<int:_id>/check-code", methods=["POST"])

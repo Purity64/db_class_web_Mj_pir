@@ -23,7 +23,7 @@ CREATE TABLE users (
     name		varchar(100)	not null,
     email		varchar(100)	unique ,
     password	varchar(255)	not null,
-    role  		varchar(255)	default 'user',
+    role  		enum("user" , "admin")	default 'user',
     
     constraint 	chk_role		check	(role in('user','admin'))
 );
@@ -32,7 +32,7 @@ CREATE TABLE product (
     product_id 	INT AUTO_INCREMENT PRIMARY key,
     -- TODO: name, category, price, stock
     name 		varchar(255) not null,
-    detail		text null,
+    detail		varchar(255)  null,
     category	varchar(100),
     price		decimal(10,2) not null,
     open_product enum("open" , "close" , "none"),
@@ -43,10 +43,7 @@ CREATE TABLE product (
 );
 
 CREATE TABLE shop_order (   
-	-- TODO: cust_id (FK), order_date, status ENUM('pending','shipped')
-    -- ★ ไม่ต้องมีคอลัมน์ยอดรวม — คำนวณจาก order_line (ดู search_orders ใน db.py)
     order_id 			INT AUTO_INCREMENT PRIMARY key,
-
     user_id				int not null,-- fk
     status 				enum('cart','waitpay','success','cancel') not null default 'cart',
 
@@ -91,11 +88,13 @@ CREATE TABLE review (             -- M:N: customer × product
     user_id 	INT not null, 
     product_id 	INT not null,
     rating		int	not null,
-    comment		text,
+    comment		VARCHAR(255) null,
 
     create_at	timestamp 	default CURRENT_TIMESTAMP(),
+    UNIQUE KEY uq_review_user_product (user_id, product_id),
     constraint fk_review_user foreign key (user_id) references users(user_id) ON DELETE CASCADE,
-    constraint 	chk_rating 	check 	(rating	between 1 and 5)
+    constraint 	chk_rating 	check 	(rating	between 1 and 5),
+    constraint fk_review_product foreign key (product_id) references product(product_id) ON DELETE CASCADE
 );
 
 CREATE TABLE code (
@@ -104,7 +103,7 @@ CREATE TABLE code (
     discount DECIMAL(10,2) NOT NULL,
     discount_method ENUM('money', 'percent'),
     status BOOLEAN DEFAULT TRUE,
-    max_uses INT NOT NULL DEFAULT 0,        -- 0 = ไม่จำกัดจำนวนครั้ง
+    max_uses INT NOT NULL DEFAULT 0,        
 
     create_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP(),
     end_at TIMESTAMP NULL
@@ -123,14 +122,13 @@ CREATE TABLE code_line (
     constraint fk_codeline_order	foreign key(order_id)	references shop_order(order_id) ON DELETE CASCADE
 );
 
-CREATE TABLE payment (            -- 1:M จาก shop_order
-    -- TODO: order_id (FK), method, amount, paid_date 
+CREATE TABLE payment (            -- 1:M จาก shop_order (เก็บทุกครั้งที่พยายามจ่าย)
     payment_id 	INT AUTO_INCREMENT PRIMARY key,
     order_id 	int not null,		--	fk 
     amount_pay	decimal	(10,2) not null,
     code_id	int null,			--	fk 
+    status 		enum('success','failed') not null default 'success',
     create_at 	timestamp 	default CURRENT_TIMESTAMP(),
-    
     constraint 	 fk_payment_order	foreign key(order_id)	references	shop_order(order_id) ON DELETE CASCADE,
     constraint 	fk_code				foreign key(code_id)	references 	code(code_id)
 );
@@ -151,7 +149,7 @@ VALUES  ('Blox Fruit ผลพระตื่น', 'ไก่ตัน ผลพ
 INSERT 	INTO shop_order (user_id, status)
 VALUES  (1, 'success'),
         (2, 'success'),
-        (1, 'waitpay');
+        (1, 'success');
 
 INSERT 	INTO order_line (order_id, product_id, unit_price, quantity)
 VALUES  (1, 1, 500.00, 1),
@@ -161,7 +159,7 @@ VALUES  (1, 1, 500.00, 1),
 INSERT 	INTO product_detail (product_id, username, password, order_line_id)
 VALUES  (1, 'demo_game_001', 'demo_pass_001', 1),
         (2, 'demo_game_002', 'demo_pass_002', 2),
-        (3, 'demo_software_003', 'demo_pass_003', NULL);
+        (3, 'demo_software_003', 'demo_pass_003', 3);
 
 -- สต็อก = จำนวน product_detail ที่ยังว่าง (order_line_id IS NULL)
 -- เพิ่มเครดิตคงเหลือสำหรับ demo (สินค้า 1, 2 ถูกใช้ไปแล้ว 1 ชุด)
@@ -189,6 +187,11 @@ VALUES  ('SAVE50', 50.00, 'money', TRUE, '2026-12-31 23:59:59'),
         ('SALE10', 10.00, 'percent', TRUE, '2026-11-30 23:59:59'),
         ('OLD20', 20.00, 'percent', FALSE, NULL);
 
-INSERT 	INTO payment (order_id, amount_pay, code_id)
-VALUES  (1, 450.00, 1),
-        (2, 900.00, 2);
+INSERT 	INTO payment (order_id, amount_pay, code_id, status)
+VALUES  (1, 450.00, 1, 'success'),
+        (2, 900.00, 2, 'success'),
+        (3, 300.00, NULL, 'failed'),   -- พยายามจ่ายแล้วไม่สำเร็จ (เก็บประวัติไว้)
+        (3, 300.00, NULL, 'success');  -- จ่ายสำเร็จในรอบถัดไป → ออเดอร์ 3 มี 2 แถว = 1:M
+
+-- ออเดอร์ที่จ่ายแล้ว = เครดิตถูกส่งมอบแล้ว
+UPDATE product_detail SET `use` = TRUE WHERE order_line_id IS NOT NULL;

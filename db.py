@@ -28,6 +28,23 @@ def run_command(sql, params=None):
     cur.close(); conn.close(); return out
 
 
+def run_commands(statements):
+    """รันหลายคำสั่งใน connection เดียว — commit ครั้งเดียว, error → rollback"""
+    conn = get_connection(); cur = conn.cursor()
+    try:
+        out = {"new_id": None, "affected": 0}
+        for sql, params in statements:
+            cur.execute(sql, params or ())
+            out = {"new_id": cur.lastrowid, "affected": cur.rowcount}
+        conn.commit()
+        return out
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        cur.close(); conn.close()
+
+
 def blank_to_none(value):
     """ช่องที่ไม่ได้กรอกในฟอร์มจะส่งมาเป็น "" — แปลงเป็น None (= NULL ใน SQL)
     ใช้กับคอลัมน์ที่ว่างได้ เช่น return_date, paid_date  เพราะ MySQL ไม่รับ '' เป็น DATE"""
@@ -85,7 +102,7 @@ def search_orders_user(filters, user_id):
                     COUNT(ol.order_line_id) AS items,
                     IFNULL(SUM(ol.quantity * ol.unit_price), 0) AS total,
                     (SELECT IFNULL(SUM(p.amount_pay), 0) FROM payment p
-                      WHERE p.order_id = o.order_id) AS paid,
+                      WHERE p.order_id = o.order_id AND p.status = 'success') AS paid,
                     (SELECT COUNT(*) FROM order_line o2
                       WHERE o2.order_id = o.order_id
                         AND NOT EXISTS (SELECT 1 FROM review r
@@ -333,55 +350,78 @@ def confirm_cart(order_id):
 
 
 
-def pay_order(user_id, order_id, code_name=None):
+def pay_order(user_id, order_id, code_name=None, result="success"):
     uid = int(user_id)
 
     o = run_query(
-        """SELECT user_id, status, (end_at IS NOT NULL AND end_at <= NOW()) AS expired
+        """SELECT user_id, status, (end_at IS NOT NULL AND end_at <= NOW()) AS expired,
+                  (SELECT IFNULL(SUM(quantity * unit_price), 0)
+                     FROM order_line WHERE order_id = shop_order.order_id) AS total
            FROM shop_order WHERE order_id = %s""",
         (order_id,))
     if not o:
         raise ValueError("ไม่พบออเดอร์")
     if int(o[0]["user_id"]) != uid:
         raise ValueError("ไม่มีสิทธิ์ชำระเงินออเดอร์นี้")
+    total = float(o[0]["total"])
+    if total <= 0:
+        raise ValueError("ออเดอร์ไม่มียอดชำระ")
+
+    def log_failed():
+        run_command(
+            "INSERT INTO payment (order_id, amount_pay, code_id, status) "
+            "VALUES (%s, %s, NULL, 'failed')",
+            (order_id, total))
+
+    if result != "success":
+        log_failed()
+        return {"order_id": order_id, "status": "failed", "amount_pay": total}
+
     if o[0]["status"] != "waitpay":
+        log_failed()
         raise ValueError("ออเดอร์นี้ไม่ได้อยู่ในสถานะรอชำระเงิน")
     if o[0]["expired"]:
+        log_failed()
         raise ValueError("ออเดอร์หมดอายุแล้ว")
 
-    total_rows = run_query(
-        "SELECT IFNULL(SUM(quantity * unit_price), 0) AS total "
-        "FROM order_line WHERE order_id = %s",
-        (order_id,))
-    total = float(total_rows[0]["total"])
-    if total < 0:
-        raise ValueError("ออเดอร์ไม่มียอดชำระ")
     amount = total
     code_id = None
     if code_name:
         info = check_order_code(uid, order_id, code_name)
         amount = float(info["final"])
         code_id = info.get("code_id")
-    run_command(
-        "INSERT INTO payment (order_id, amount_pay, code_id) VALUES (%s, %s, %s)",
-        (order_id, amount, code_id))
+
+    stmts = [
+        ("INSERT INTO payment (order_id, amount_pay, code_id, status) "
+         "VALUES (%s, %s, %s, 'success')", (order_id, amount, code_id)),
+    ]
     if code_id:
-        run_command(
-            "INSERT INTO code_line (code_id, user_id, order_id) VALUES (%s, %s, %s)",
-            (code_id, uid, order_id))
-        run_command(
-            "UPDATE code SET max_uses = max_uses - 1 WHERE code_id = %s and max_uses > 0 " , [code_id,]
-        )
-    run_command(
-        "UPDATE product_detail pd "
-        "JOIN order_line ol ON ol.order_line_id = pd.order_line_id "
-        "SET pd.`use` = TRUE "
-        "WHERE ol.order_id = %s AND pd.`use` = FALSE",
-        (order_id,))
-    run_command(
-        "UPDATE shop_order SET status = 'success' WHERE order_id = %s",
-        (order_id,))
-    return {"order_id": order_id, "amount_pay": amount, "code_id": code_id}
+        stmts.append(
+            ("INSERT INTO code_line (code_id, user_id, order_id) VALUES (%s, %s, %s)",
+             (code_id, uid, order_id)))
+        stmts.append(
+            ("UPDATE code SET max_uses = max_uses - 1 WHERE code_id = %s AND max_uses > 0",
+             (code_id,)))
+    stmts.append(
+        ("UPDATE product_detail pd "
+         "JOIN order_line ol ON ol.order_line_id = pd.order_line_id "
+         "SET pd.`use` = TRUE "
+         "WHERE ol.order_id = %s AND pd.`use` = FALSE",
+         (order_id,)))
+    stmts.append(
+        ("UPDATE shop_order SET status = 'success' WHERE order_id = %s",
+         (order_id,)))
+    run_commands(stmts)
+    return {"order_id": order_id, "status": "success",
+            "amount_pay": amount, "code_id": code_id}
+
+
+def get_order_payments(order_id):
+    """ประวัติการชำระเงินทั้งหมดของออเดอร์ (ใหม่ → เก่า)"""
+    return run_query(
+        """SELECT payment_id, order_id, amount_pay, code_id, status, create_at
+           FROM payment WHERE order_id = %s ORDER BY payment_id DESC""",
+        (int(order_id),))
 
 
 def cancel_order(user_id, order_id):
@@ -505,10 +545,6 @@ def update_product(product_id, data):
 
 # ---------- สต็อก (product_detail) ของสินค้า — /admin จัดการ ----------
 def get_product_stock(product_id):
-    """ดึงรายการบัญชีสต็อก (product_detail) ของสินค้านี้
-    คืน list ของ {product_detail_id, username, password, status}
-    status = 'ว่าง' (order_line_id IS NULL) / 'จอง' (มี order_line_id, use=FALSE, book_end_at ยังไม่หมด) / 'ขายแล้ว' (use=TRUE)"""
-    
     sql = """
         SELECT 
             product_detail_id, 
@@ -528,8 +564,7 @@ def get_product_stock(product_id):
 
 
 def add_product_stock(product_id, qty, username=None, password=None):
-    """เพิ่มบัญชีสต็อกใหม่ — ถ้า username/password เป็น None → สร้างอัตโนมัติ qty แถว
-    (acc_{pid}_{n} / pass_{pid}_{n} ต่อจากเลขล่าสุด)  ถ้าส่ง username มา → สร้าง 1 แถวด้วยค่านั้น"""
+
     product_id = int(product_id)
     if username is not None:
         username = str(username).strip()
@@ -540,45 +575,11 @@ def add_product_stock(product_id, qty, username=None, password=None):
             "INSERT INTO product_detail (product_id, username, password) VALUES (%s, %s, %s)",
             (product_id, username, password))
 
-    try:
-        qty = int(qty)
-    except (TypeError, ValueError):
-        raise ValueError("จำนวนสต็อกไม่ถูกต้อง")
-    if qty <= 0:
-        raise ValueError("จำนวนสต็อกต้องมากกว่า 0")
 
-    # ต่อเลขบัญชีจากรายการเดิม เพื่อไม่ให้ username ที่สร้างอัตโนมัติซ้ำ
-    prefix = f"acc_{product_id}_"
-    existing = run_query(
-        "SELECT username FROM product_detail WHERE product_id = %s AND username LIKE %s",
-        (product_id, prefix + "%"))
-    next_number = 1
-    for row in existing:
-        value = row.get("username") or ""
-        suffix = value[len(prefix):] if value.startswith(prefix) else ""
-        if suffix.isdigit():
-            next_number = max(next_number, int(suffix) + 1)
-
-    conn = get_connection()
-    cur = conn.cursor()
-    try:
-        for number in range(next_number, next_number + qty):
-            cur.execute(
-                "INSERT INTO product_detail (product_id, username, password) VALUES (%s, %s, %s)",
-                (product_id, f"{prefix}{number:02d}", f"pass_{product_id}_{number:02d}"))
-        conn.commit()
-        return {"new_id": cur.lastrowid, "affected": qty}
-    except Exception:
-        conn.rollback()
-        raise
-    finally:
-        cur.close()
-        conn.close()
 
 
 def update_product_detail(pd_id, username, password, use):
-    """แก้ username/password/use ของบัญชีสต็อก — ได้เฉพาะบัญชีว่าง (order_line_id IS NULL)
-    use = 0 (ยังไม่ออกของ) / 1 (ออกของแล้ว)"""
+
     result = run_command(
         "UPDATE product_detail SET username = %s, password = %s, `use` = %s "
         "WHERE product_detail_id = %s AND order_line_id IS NULL AND `use` = FALSE",
@@ -589,7 +590,6 @@ def update_product_detail(pd_id, username, password, use):
 
 
 def delete_product_detail(pd_id):
-    """ลบบัญชีสต็อก — ได้เฉพาะบัญชีว่าง (order_line_id IS NULL AND use = FALSE)"""
     result = run_command(
         "DELETE FROM product_detail WHERE product_detail_id = %s "
         "AND order_line_id IS NULL AND `use` = FALSE",
@@ -601,14 +601,7 @@ def delete_product_detail(pd_id):
 
 # ---------- โค้ดส่วนลด (code) — /admin จัดการ ----------
 def search_codes(filters):
-    """ค้นหาโค้ดส่วนลด — filters: code_name (LIKE), discount_method, status (''=ทั้งหมด, '1'=เปิด, '0'=ปิด)
-    คืน list ของ {code_id, code_name, discount, discount_method, max_uses, status, end_at}"""
-    # TODO: SELECT code_id, code_name, discount, discount_method, max_uses, status, end_at
-    #       FROM code
-    #       + filters["code_name"]     → AND code_name LIKE %s ('%...%')
-    #       + filters["discount_method"] → AND discount_method = %s
-    #       + filters["status"] ('1'/'0') → AND status = %s (แปลงเป็น boolean)
-    #       ORDER BY code_id DESC
+
     sql = """
         select 	code_id
 		        ,code_name 
@@ -737,33 +730,23 @@ def delete_code(code_id):
 # ---------- รีวิว (review) — หน้า /home แท็บออเดอร์ หลังจ่ายเงิน ----------
 def get_my_reviews(user_id, order_id):
     print("my review")
-    """รีวิวของฉันสำหรับสินค้าในออเดอร์นี้ — คืน list ของ {product_id, rating, comment}
-    (ใช้เติมค่าเดิมในฟอร์มรีวิวถ้าเคยรีวิวไว้แล้ว)"""
-    # TODO: SELECT DISTINCT r.product_id, r.rating, r.comment
-    #       FROM review r
-    #       WHERE r.user_id = %s
-    #         AND r.product_id IN (SELECT product_id FROM order_line WHERE order_id = %s)
+
     sql = """
             select 	DISTINCT r.product_id, r.rating, r.comment
             from 	review r 
             where 	r.user_id = %s
             AND r.product_id IN (SELECT product_id FROM order_line WHERE order_id = %s)
         """
-    return run_query(sql, [user_id],[order_id])
+    return run_query(sql, (user_id, order_id))
 
 
 def save_reviews(user_id, order_id, items):
-    """บันทึกรีวิวทั้งชุดของออเดอร์ — items = [{product_id, rating, comment}, ...]
-    1 คน ต่อ 1 สินค้า = 1 รีวิว (มีเดิม → UPDATE, ไม่มี → INSERT)"""
     for it in items:
         pid = int(it.get("product_id"))
         rating = int(it.get("rating") or 0)
         comment = (it.get("comment") or "").strip()
         if rating < 1 or rating > 5:
             raise ValueError("ดาวต้องอยู่ระหว่าง 1-5")
-
-        # 3) upsert — มีเดิมแล้ว (user_id + product_id) → UPDATE, ไม่มี → INSERT
-        #    (ยังไม่มี composite PK → ห้ามใช้ ON DUPLICATE KEY)
         old = run_query(
             "SELECT review_id FROM review WHERE user_id = %s AND product_id = %s",
             (user_id, pid))
@@ -815,7 +798,8 @@ def report_summary():
 
             (SELECT COALESCE(SUM(amount_pay), 0)
              FROM payment
-             WHERE create_at >= DATE_FORMAT(CURRENT_DATE(), '%Y-%m-01')
+             WHERE status = 'success'
+               AND create_at >= DATE_FORMAT(CURRENT_DATE(), '%Y-%m-01')
                AND create_at < DATE_FORMAT(CURRENT_DATE() + INTERVAL 1 MONTH, '%Y-%m-01')) AS payment_month,
 
             (SELECT avg(rating)

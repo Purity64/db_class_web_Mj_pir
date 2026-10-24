@@ -210,6 +210,7 @@ on("#btnSave", save);
 on("#btnCancel", () => $("#modal").classList.add("hidden"));
 on("#btnConfirmCart", confirmCart);
 on("#btnPaySuccess", paySuccess);
+on("#btnPayFail", payFailed);
 on("#btnPayCancel", payCancel);
 on("#btnCheckCode", checkCode);
 on("#btnOdClose", () => $("#orderDetailModal").classList.add("hidden"));
@@ -478,18 +479,34 @@ async function paySuccess() {
   const r = await api("/api/orders/" + orderId + "/pay", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(pendingPayCode ? { code_name: pendingPayCode } : {})
+    body: JSON.stringify({ code_name: pendingPayCode || null, result: "success" })
   });
   if (!r.ok) { alert((r.todo ? "🚧 " : "⚠️ ") + r.error); return; }
-  const paid = r.data && r.data.amount_pay;
+  const d = r.data || {};
+  const paid = d.amount_pay;
   pendingPayOrderId = null;
   pendingPayAmount = 0;
   pendingPayCode = null;
   $("#payModal").classList.add("hidden");
-  alert("ชำระเงินสำเร็จ เลขที่ออเดอร์ #" + (r.data.order_id ?? orderId) +
+  alert((d.status === "success" ? "ชำระเงินสำเร็จ" : "บันทึกการชำระเงินไม่สำเร็จ") +
+    " เลขที่ออเดอร์ #" + (d.order_id ?? orderId) +
     (paid !== undefined ? " ยอด " + paid + " บาท" : ""));
   if (current === "orders") doSearch();
   else document.querySelector('.tab[data-entity="orders"]').click();
+}
+
+async function payFailed() {
+  if (pendingPayOrderId == null) return;
+  const orderId = pendingPayOrderId;
+  const r = await api("/api/orders/" + orderId + "/pay", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ code_name: null, result: "failed" })
+  });
+  if (!r.ok) { alert((r.todo ? "🚧 " : "⚠️ ") + r.error); return; }
+  // เก็บเป็นประวัติ status='failed' แต่ออเดอร์ยังรอชำระ — ไม่ปิด modal เพื่อให้ลองใหม่ได้
+  alert("จำลองการชำระเงินไม่สำเร็จ — บันทึกเป็นประวัติแล้ว ออเดอร์ยังรอชำระอยู่");
+  if (current === "orders") doSearch();
 }
 
 function payCancel() {
@@ -520,6 +537,16 @@ async function showOrderDetail(orderId) {
     "<tr><td>" + it.name + "</td><td>" + it.quantity + "</td><td>" + it.unit_price + "</td>" +
     "<td>" + it.line_total + "</td><td>" + (it.username || "—") + "</td><td>" + (it.password || "—") + "</td></tr>"
   ).join("") : '<tr><td colspan="6">ไม่มีรายการ</td></tr>';
+
+  const p = await api("/api/orders/" + orderId + "/payments");
+  const pays = p.ok ? (p.data || []) : [];
+  const label = { success: "สำเร็จ", failed: "ไม่สำเร็จ" };
+  $("#odPayments").innerHTML = pays.length ? pays.map(pay =>
+    "<tr><td>" + pay.payment_id + "</td><td>" + pay.amount_pay + "</td>" +
+    "<td>" + (label[pay.status] || pay.status) + "</td><td>" + pay.create_at + "</td></tr>"
+  ).join("") : '<tr><td colspan="4">' +
+    (p.ok ? "ยังไม่มีประวัติการชำระเงิน" : rvEsc(p.error || "โหลดประวัติไม่สำเร็จ")) + '</td></tr>';
+
   $("#orderDetailModal").classList.remove("hidden");
 }
 
