@@ -6,7 +6,7 @@
 # ============================================================
 DB_HOST = "127.0.0.1"  # บังคับให้วิ่งผ่าน IPv4 ทันที ไม่ต้องรอ Timeout
 DB_USER = "root"                     # TODO: username ของนิสิต
-DB_PASSWORD = "Sayomphu999"                 # TODO: password ของนิสิต
+DB_PASSWORD = ""                 # TODO: password ของนิสิต
 DB_NAME = "project69"              # TODO: ชื่อฐานข้อมูลของนิสิต
 DB_PORT = 3306
 

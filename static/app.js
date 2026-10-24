@@ -285,8 +285,11 @@ function renderTable(r) {
       // ออเดอร์: ดูอย่างเดียว (ไม่มี route แก้ไข/ลบ)
       actions = '<button class="btn sm" onclick="openOrderDetail(' + id + ')">👁 ดูรายการ</button>';
     } else {
-      actions = '<button class="btn sm" onclick="editRow(' + id + ')">แก้ไข</button> ' +
-        '<button class="btn sm del" onclick="deleteRow(' + id + ')">ลบ</button>';
+      actions = '<button class="btn sm" onclick="editRow(' + id + ')">แก้ไข</button>';
+      // สินค้า: ไม่มีปุ่ม "ลบ" (เฉพาะ UI — route DELETE ยังอยู่)
+      if (cfg.idKey !== "product_id") {
+        actions += ' <button class="btn sm del" onclick="deleteRow(' + id + ')">ลบ</button>';
+      }
       if (cfg.idKey === "product_id") {
         prodNames[id] = row.name;
         if (document.getElementById("stockModal")) {

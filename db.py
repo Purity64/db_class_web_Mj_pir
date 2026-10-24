@@ -64,7 +64,6 @@ def search_products(filters):
         sql += " AND p.category = %s"
         params.append(f["category"])
     if f.get("hide_none"):
-        # ฝั่งลูกค้า (/home) ไม่ต้องเห็นสินค้าสถานะ none — admin ไม่ส่งพารามิเตอร์นี้
         sql += " AND IFNULL(p.open_product, 'open') <> 'none'"
     sql += "  ORDER BY p.product_id"
     return run_query(sql, params)
@@ -177,7 +176,6 @@ def add_to_Order(data, user_id):
     print(pid)
     print(qty)
 
-    # บล็อกสินค้าที่ไม่ใช่ open — close = ปิดขาย, none = ซ่อน (กันยิง API ตรง)
     p = run_query(
         "SELECT name, IFNULL(open_product, 'open') AS op FROM product WHERE product_id = %s",
         (pid,))
@@ -191,7 +189,6 @@ def add_to_Order(data, user_id):
     
     if not order_id:
         print("not order")
-        #-- ยังไม่มมี order สร้างก่อน
         run_command("INSERT INTO shop_order (user_id , status ) VALUES(%s , 'cart')", [user_id,]) 
         order_id = Check_myorder(user_id)
     
@@ -244,14 +241,7 @@ def remove_cart_item(user_id, product_id):
 
 
 def check_order_code(user_id, order_id, code_name):
-    """เช็คโค้ดส่วนลดของออเดอร์ — คืน {code_id, code_name, discount_method, discount, total, final}
-    - โค้ดต้องมีในตาราง code, status = TRUE, และ end_at ยังไม่หมดอายุ (หรือเป็น NULL)
-    - คำนวณ: money → final = max(total - discount, 0)
-             percent → final = total * (100 - discount) / 100
-    - โค้ดผิด / หมดอายุ / ปิดใช้ → raise ValueError("ข้อความอธิบาย")
-    """
 
-    # ยอดออเดอร์ + เช็คเป็นเจ้าของ + เช็คสถานะ
     t = run_query(
         """SELECT IFNULL(SUM(ol.quantity * ol.unit_price), 0) AS total,
                   o.user_id, o.status
@@ -275,7 +265,7 @@ def check_order_code(user_id, order_id, code_name):
                  WHERE cl.user_id = %s AND cl.code_id = c.code_id) AS used
         FROM code c
         WHERE c.code_name = %s AND c.status = TRUE
-          AND (c.end_at IS NULL OR c.end_at > NOW())
+          AND (c.end_at IS NULL OR c.end_at > NOW())  AND max_uses > 0
         """, [user_id, code_name])
     if not rows:
         raise ValueError("โค้ดไม่ถูกต้อง หมดอายุ หรือถูกปิดใช้งาน")
@@ -379,6 +369,9 @@ def pay_order(user_id, order_id, code_name=None):
         run_command(
             "INSERT INTO code_line (code_id, user_id, order_id) VALUES (%s, %s, %s)",
             (code_id, uid, order_id))
+        run_command(
+            "UPDATE code SET max_uses = max_uses - 1 WHERE code_id = %s and max_uses > 0 " , [code_id,]
+        )
     run_command(
         "UPDATE product_detail pd "
         "JOIN order_line ol ON ol.order_line_id = pd.order_line_id "
@@ -743,6 +736,7 @@ def delete_code(code_id):
 
 # ---------- รีวิว (review) — หน้า /home แท็บออเดอร์ หลังจ่ายเงิน ----------
 def get_my_reviews(user_id, order_id):
+    print("my review")
     """รีวิวของฉันสำหรับสินค้าในออเดอร์นี้ — คืน list ของ {product_id, rating, comment}
     (ใช้เติมค่าเดิมในฟอร์มรีวิวถ้าเคยรีวิวไว้แล้ว)"""
     # TODO: SELECT DISTINCT r.product_id, r.rating, r.comment
@@ -787,13 +781,6 @@ def save_reviews(user_id, order_id, items):
 
 
 def get_product_reviews(product_id):
-    """รีวิวทั้งหมดของสินค้า — คืน list ของ {user_id, name, rating, comment, create_at}
-    (หน้า /home และ /admin กด "ดูรีวิว" ที่ตารางสินค้า)"""
-    # TODO: SELECT r.user_id, u.name, r.rating, r.comment, r.create_at
-    #       FROM review r
-    #       LEFT JOIN users u ON u.user_id = r.user_id
-    #       WHERE r.product_id = %s
-    #       ORDER BY r.create_at DESC
     sql = """
             SELECT r.user_id, u.name, r.rating, r.comment, r.create_at
             FROM review r       
